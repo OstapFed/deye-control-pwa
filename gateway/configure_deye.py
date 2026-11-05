@@ -42,6 +42,7 @@ def main():
  p=argparse.ArgumentParser(description='Deye SG04LP3 read-only setup. No inverter writes.')
  p.add_argument('--host',required=True);p.add_argument('--serial',required=True,type=int);p.add_argument('--unit',type=int,default=1);p.add_argument('--expected-inverter-serial');p.add_argument('--apply',action='store_true')
  args=p.parse_args()
+ print('DEYE BUILD: 2026.11.06-single-register-1 (single-register reads only)',flush=True)
  try:
   point=None; last_error=None
   for attempt in range(1,4):

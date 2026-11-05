@@ -1,8 +1,10 @@
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$LoggerHost,[Parameter(Mandatory=$true)][UInt32]$LoggerSerial,[string]$ExpectedInverterSerial)
+param([Parameter(Mandatory=$true)][string]$LoggerHost,[Parameter(Mandatory=$true)][UInt32]$LoggerSerial,[string]$ExpectedInverterSerial,[string]$SourceRef='main')
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+if ($SourceRef -ne 'main' -and $SourceRef -notmatch '^[0-9a-f]{40}$') {throw 'SourceRef must be main or a full commit SHA.'}
+Write-Host ('DEYE update source: '+$SourceRef) -ForegroundColor Cyan
 $deyeRoot=Join-Path $env:LOCALAPPDATA 'DeyeControl'
 $deyeSource=Join-Path $deyeRoot 'source'
 $deyePython=Join-Path $deyeRoot '.venv\Scripts\python.exe'
@@ -21,9 +23,10 @@ $env:PYTHONIOENCODING='utf-8'
 [Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
 $deyeTemp=Join-Path ([IO.Path]::GetTempPath()) ('deye-connect-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $deyeTemp | Out-Null
-Invoke-WebRequest -UseBasicParsing 'https://github.com/OstapFed/deye-control-pwa/archive/refs/heads/main.zip' -OutFile (Join-Path $deyeTemp 'source.zip')
+$deyeArchiveUrl=if ($SourceRef -eq 'main') {'https://github.com/OstapFed/deye-control-pwa/archive/refs/heads/main.zip'} else {'https://github.com/OstapFed/deye-control-pwa/archive/'+$SourceRef+'.zip'}
+Invoke-WebRequest -UseBasicParsing $deyeArchiveUrl -OutFile (Join-Path $deyeTemp 'source.zip')
 Expand-Archive (Join-Path $deyeTemp 'source.zip') -DestinationPath $deyeTemp
-Get-ChildItem (Join-Path $deyeTemp 'deye-control-pwa-main') -Force | Copy-Item -Destination $deyeSource -Recurse -Force
+Get-ChildItem (Join-Path $deyeTemp ('deye-control-pwa-'+$SourceRef)) -Force | Copy-Item -Destination $deyeSource -Recurse -Force
 $env:DEYE_DATA=Join-Path $deyeRoot 'data'
 $arguments=@((Join-Path $deyeSource 'gateway\configure_deye.py'),'--host',$LoggerHost,'--serial',"$LoggerSerial",'--apply')
 if ($ExpectedInverterSerial) {$arguments+=@('--expected-inverter-serial',$ExpectedInverterSerial)}

@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
+APP_VERSION = '2026.11.06-single-register-1'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -229,6 +230,7 @@ def status():
     c = config(); now = time.time()
     with STATE_LOCK: result = dict(SITE_STATES.get(c['active_site'],STATE))
     result['schedule'] = schedule_state(c, now)
+    result['version'] = APP_VERSION
     result['site_id'] = c['active_site']
     result['site_name'] = c['address']
     result['poll_seconds'] = c['poll_seconds']
@@ -337,7 +339,7 @@ def capabilities():
     if c['mode'] in ('modbus_tcp','solarman_v5') and c['verified_profile'] and c['allow_writes']:
         for name,r in c['registers'].items():
             if r.get('writable'): writable[name] = {k:r[k] for k in ('min','max','scale','label','unit') if k in r}
-    return dict(protocol='deye-control-v4',writable=writable,metrics=list(c['registers']),demo=c['mode']=='demo')
+    return dict(version=APP_VERSION,protocol='deye-control-v4',writable=writable,metrics=list(c['registers']),demo=c['mode']=='demo')
 
 
 def report_message():
