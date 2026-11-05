@@ -49,7 +49,10 @@ def validate(c):
         if not isinstance(x.get('group'), str): raise ValueError('Потрібна група')
         if stamp(x['end']) <= stamp(x['start']): raise ValueError('Кінець має бути після початку')
     for name, r in c['registers'].items():
-        if not 0 <= int(r['address']) <= 65535: raise ValueError('Адреса регістра')
+        addresses=[r['address'],*r.get('sum_addresses',[])] + ([r['address_high']] if 'address_high' in r else [])
+        if not all(0 <= int(x) <= 65535 for x in addresses): raise ValueError('Адреса регістра')
+        if 'bit' in r and not 0<=int(r['bit'])<=15: raise ValueError('Номер біта')
+        if r.get('writable') and any(k in r for k in ('bit','clip','sum_addresses','address_high')): raise ValueError('Складені регістри доступні лише для читання')
         if not math.isfinite(float(r.get('scale', 1))) or float(r.get('scale', 1)) == 0: raise ValueError('Масштаб регістра')
         if int(r.get('function', 3)) not in (3, 4): raise ValueError('Функція читання')
         if r.get('writable') and (not math.isfinite(float(r['min'])) or not math.isfinite(float(r['max'])) or float(r['min']) > float(r['max'])): raise ValueError('Межі запису')
@@ -97,9 +100,18 @@ class Modbus:
                 return struct.unpack('>H', p[2:])[0]
             if p != struct.pack('>BHH', function, address, value): raise OSError('Запис не підтверджено')
     def read(self, r):
-        v = self.request(int(r.get('function', 3)), int(r['address']), 1)
-        if r.get('signed') and v >= 32768: v -= 65536
-        return v * float(r.get('scale', 1))
+        fc=int(r.get('function',3))
+        v=self.request(fc,int(r['address']),1)
+        bits=16
+        if 'address_high' in r:
+            v |= self.request(fc,int(r['address_high']),1) << 16; bits=32
+        if r.get('signed') and v >= 1 << (bits-1): v -= 1 << bits
+        if 'bit' in r: v=(v >> int(r['bit'])) & 1
+        for address in r.get('sum_addresses',[]): v += self.request(fc,int(address),1)
+        v *= float(r.get('scale',1))
+        if r.get('clip')=='positive': v=max(0,v)
+        if r.get('clip')=='negative': v=max(0,-v)
+        return v
 
 class SolarmanV5(Modbus):
     def request(self, function, address, value):

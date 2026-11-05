@@ -90,3 +90,27 @@ class SolarmanTests(unittest.TestCase):
   with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
    with self.assertRaises(OSError):app.inverter(c).request(6,100,20)
   client.disconnect.assert_called_once()
+
+class CompositeProfileTests(unittest.TestCase):
+ def test_signed_grid_words_and_direction(self):
+  m=app.Modbus(app.DEFAULT)
+  with patch.object(m,'request',side_effect=[65036,65535]):self.assertEqual(m.read({'address':625,'address_high':690,'signed':True,'clip':'negative'}),500)
+ def test_pv_sum_and_grid_relay(self):
+  m=app.Modbus(app.DEFAULT)
+  with patch.object(m,'request',side_effect=[1200,600]):self.assertEqual(m.read({'address':672,'sum_addresses':[673]}),1800)
+  with patch.object(m,'request',return_value=5):self.assertEqual(m.read({'address':552,'bit':2}),1)
+ def test_composite_write_rejected(self):
+  with self.assertRaises(ValueError):app.validate(app.DEFAULT|{'registers':{'x':{'address':1,'bit':2,'writable':True,'min':0,'max':1}}})
+ def test_serial_matches_user_photo(self):
+  spec=importlib.util.spec_from_file_location('configure',Path(__file__).parents[1]/'gateway/configure_deye.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  self.assertEqual(m.decode_serial([12851,12593,13104,12848,14391]),'2311302087')
+ def test_configure_applies_only_local_readonly_profile(self):
+  import types,sys
+  from unittest.mock import MagicMock
+  spec=importlib.util.spec_from_file_location('configure',Path(__file__).parents[1]/'gateway/configure_deye.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  regs={0:5,3:0x3132,4:0x3334,5:0x3536,6:0x3738,7:0x3930,552:4,587:5000,588:72,590:65336,625:65036,690:65535,653:2000,659:0,672:1500,673:1200}
+  client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[regs.get(i,0) for i in range(a,a+n)]
+  dest=tempfile.mkdtemp()
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}),patch.dict(os.environ,{'DEYE_DATA':dest}),patch.object(sys,'argv',['configure','--host','192.168.1.10','--serial','123','--apply']),patch('builtins.print'):
+   self.assertEqual(m.main(),0)
+  c=json.loads((Path(dest)/'config.json').read_text());self.assertFalse(c['allow_writes']);self.assertFalse(c['verified_profile']);self.assertEqual(c['registers']['soc']['address'],588);client.write_holding_register.assert_not_called()

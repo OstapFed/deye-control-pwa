@@ -1,0 +1,37 @@
+{
+  "soc": {
+    "address": 588
+  },
+  "pv_w": {
+    "address": 672,
+    "sum_addresses": [
+      673
+    ]
+  },
+  "load_w": {
+    "address": 653,
+    "address_high": 659,
+    "signed": true
+  },
+  "grid_on": {
+    "address": 552,
+    "bit": 2
+  },
+  "grid_import_w": {
+    "address": 625,
+    "address_high": 690,
+    "signed": true,
+    "clip": "positive"
+  },
+  "grid_export_w": {
+    "address": 625,
+    "address_high": 690,
+    "signed": true,
+    "clip": "negative"
+  },
+  "battery_w": {
+    "address": 590,
+    "signed": true,
+    "scale": -1
+  }
+}
