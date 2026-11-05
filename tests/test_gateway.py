@@ -124,3 +124,27 @@ class HttpDisconnectTests(unittest.TestCase):
   handler=object.__new__(app.Handler)
   with patch.object(app.BaseHTTPRequestHandler,'handle',side_effect=OSError('server error')):
    with self.assertRaises(OSError):handler.handle()
+
+class BatchedSolarmanTests(unittest.TestCase):
+ def profile(self):
+  profile=json.loads((Path(__file__).parents[1]/'gateway/profiles/deye_sg04lp3_readonly.json').read_text())
+  return app.DEFAULT|{'mode':'solarman_v5','logger_serial':123,'registers':profile}
+ def test_one_connection_per_sample_and_cached_directions(self):
+  from unittest.mock import MagicMock
+  import types,sys
+  values={588:80,672:0,673:0,653:665,659:0,552:4,625:958,690:0,590:65365}
+  client=MagicMock();client.read_holding_registers.side_effect=lambda start,count:[values.get(i,0) for i in range(start,start+count)]
+  factory=MagicMock(return_value=client)
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):p=app.read_sample(self.profile())
+  self.assertEqual(p['soc'],80);self.assertEqual(p['load_w'],665);self.assertEqual(p['grid_import_w'],958);self.assertEqual(p['grid_export_w'],0);self.assertEqual(p['battery_w'],171)
+  factory.assert_called_once();client.disconnect.assert_called_once();self.assertLessEqual(client.read_holding_registers.call_count,4)
+ def test_failure_closes_session_and_next_cycle_reconnects(self):
+  from unittest.mock import MagicMock
+  import types,sys
+  bad=MagicMock();bad.read_holding_registers.side_effect=TimeoutError('logger timeout')
+  good=MagicMock();good.read_holding_registers.side_effect=lambda start,count:[50 if i==588 else 0 for i in range(start,start+count)]
+  factory=MagicMock(side_effect=[bad,good])
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
+   with self.assertRaises(TimeoutError):app.read_sample(self.profile())
+   self.assertEqual(app.read_sample(self.profile())['soc'],50)
+  bad.disconnect.assert_called_once();good.disconnect.assert_called_once()

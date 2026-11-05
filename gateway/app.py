@@ -1,5 +1,6 @@
 import base64, csv, hashlib, hmac, io, json, math, os, secrets, socket, sqlite3, struct, threading, time, ipaddress
 from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -77,8 +78,21 @@ def forecast(soc, load, pv, c, hours):
     projected = max(0, min(100, soc - net * hours / float(c['efficiency']) / float(c['capacity_kwh']) * 100))
     return dict(hours_to_reserve=runtime, projected_soc=round(projected, 1), insufficient=runtime is not None and runtime < hours, assumption='Поточні споживання та генерація залишаються сталими; це оцінка, не прогноз погоди.')
 
+DEVICE_LOCKS = defaultdict(threading.RLock)
+
 class Modbus:
-    def __init__(self, c): self.c = c
+    def __init__(self, c):
+        self.c = c; self._batch=False; self._client=None; self._cache={}
+        self._device_lock=DEVICE_LOCKS[(c.get('host'),c.get('port'),c.get('unit'),c.get('logger_serial'))]
+    def __enter__(self):
+        self._device_lock.acquire(); self._batch=True; return self
+    def __exit__(self,*args):
+        try: self.close()
+        finally: self._batch=False; self._cache.clear(); self._device_lock.release()
+    def close(self):
+        if self._client:
+            self._client.disconnect(); self._client=None
+    def prefetch(self, registers): pass
     def request(self, function, address, value):
         tid = secrets.randbelow(65536)
         def exact(sock, n):
@@ -114,14 +128,38 @@ class Modbus:
         return v
 
 class SolarmanV5(Modbus):
-    def request(self, function, address, value):
+    def _connect(self):
         try:
             from pysolarmanv5 import PySolarmanV5
         except ImportError as e:
             raise ValueError('Встановіть драйвер: python -m pip install -r gateway/requirements.txt') from e
-        serial = int(self.c.get('logger_serial',0))
-        if not 0 < serial <= 0xffffffff: raise ValueError('Вкажіть серійний номер логера Solarman (не інвертора)')
-        client=PySolarmanV5(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=5,auto_reconnect=False,verbose=False)
+        serial=int(self.c.get('logger_serial',0))
+        if not 0<serial<=0xffffffff: raise ValueError('Вкажіть серійний номер логера Solarman (не інвертора)')
+        return PySolarmanV5(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=5,auto_reconnect=False,verbose=False)
+    def _session(self):
+        if self._client is None: self._client=self._connect()
+        return self._client
+    def prefetch(self, registers):
+        if not self._batch: return
+        grouped=defaultdict(set)
+        for r in registers:
+            fc=int(r.get('function',3))
+            grouped[fc].update([int(r['address']),*map(int,r.get('sum_addresses',[]))])
+            if 'address_high' in r: grouped[fc].add(int(r['address_high']))
+        client=self._session()
+        for fc,addresses in grouped.items():
+            groups=[]
+            for address in sorted(addresses):
+                if groups and address-groups[-1][1]<=16 and address-groups[-1][0]<40: groups[-1][1]=address
+                else: groups.append([address,address])
+            reader=client.read_holding_registers if fc==3 else client.read_input_registers
+            for start,end in groups:
+                values=reader(start,end-start+1)
+                if len(values)!=end-start+1: raise OSError('Неповна пакетна відповідь Solarman V5')
+                self._cache.update({(fc,start+i):v for i,v in enumerate(values)})
+    def request(self, function, address, value):
+        if function in (3,4) and (function,address) in self._cache: return self._cache[(function,address)]
+        client=self._session() if self._batch else self._connect()
         try:
             if function in (3,4):
                 reader=client.read_holding_registers if function==3 else client.read_input_registers
@@ -129,14 +167,30 @@ class SolarmanV5(Modbus):
                 if len(data)!=1: raise OSError('Некоректна відповідь Solarman V5')
                 return data[0]
             if function==6:
+                self._cache.clear()
                 actual=client.write_holding_register(address,value)
                 if actual!=value: raise OSError('Запис Solarman не підтверджено')
                 return actual
             raise ValueError('Непідтримувана функція Solarman')
-        finally: client.disconnect()
+        finally:
+            if not self._batch: client.disconnect()
 
 def inverter(c):
     return SolarmanV5(c) if c['mode']=='solarman_v5' else Modbus(c)
+
+def read_sample(c):
+    required=('soc','pv_w','load_w','grid_on')
+    optional=('grid_import_w','grid_export_w','solar_direct_w','battery_w')
+    missing=[key for key in required if key not in c['registers']]
+    if missing: raise ValueError('У профілі відсутні канали: '+', '.join(missing))
+    with inverter(c) as m:
+        m.prefetch([c['registers'][key] for key in (*required,*optional) if key in c['registers']])
+        point={key:m.read(c['registers'][key]) for key in (*required,*optional) if key in c['registers']}
+    if not all(math.isfinite(v) for v in point.values()) or not 0<=point['soc']<=100 or min(point['pv_w'],point['load_w'])<0: raise ValueError('Некоректні вимірювання / профіль')
+    for key in ('grid_import_w','grid_export_w','solar_direct_w'):
+        if key in point and point[key]<0: raise ValueError('Некоректний показник '+key)
+    point['grid_on']=bool(point['grid_on'])
+    return point
 
 STATE = dict(online=False, demo=True, error='Очікування опитування', sample=None)
 STATE_LOCK = threading.RLock()
@@ -201,11 +255,12 @@ def write_setting(name, value, actor):
         if abs(raw-round(raw)) > 1e-6: raise ValueError('Значення не відповідає кроку регістра')
         raw = round(raw)
         if not (-32768 if r.get('signed') else 0) <= raw <= (32767 if r.get('signed') else 65535): raise ValueError('Переповнення регістра')
-        m = inverter(c); old = m.read(r)
-        with db() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'REQUESTED ' + str(value)))
-        m.request(6, int(r['address']), raw & 65535)
-        actual = m.read(r)
-        with db() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'READBACK ' + str(actual)))
+        with inverter(c) as m:
+            old = m.read(r)
+            with db() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'REQUESTED ' + str(value)))
+            m.request(6, int(r['address']), raw & 65535)
+            actual = m.read(r)
+            with db() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'READBACK ' + str(actual)))
         if abs(actual-value) > 1e-6: raise ValueError('Контрольне читання не збігається; перевірте інвертор')
         if name in ('reserve_soc','target_soc'):
             c[name] = actual; save(c)
@@ -330,15 +385,7 @@ def poll():
                 except Exception: notify('Не вдалося оновити графік. Збережений графік може бути застарілим.')
             if c['mode']=='demo': s=dict(soc=72.,pv_w=1400.,load_w=800.,grid_on=True,grid_import_w=0.,grid_export_w=100.,solar_direct_w=800.,battery_w=500.)
             else:
-                m=inverter(c); s={k:m.read(c['registers'][k]) for k in ('soc','pv_w','load_w','grid_on')}
-                if not all(math.isfinite(x) for x in s.values()) or not 0<=s['soc']<=100 or s['load_w']<0 or s['pv_w']<0: raise ValueError('Некоректні вимірювання / профіль')
-                s['grid_on']=bool(s['grid_on'])
-                for key in ('grid_import_w', 'grid_export_w', 'solar_direct_w', 'battery_w'):
-                    r = c['registers'].get(key)
-                    if r:
-                        value = m.read(r)
-                        if not math.isfinite(value) or (key != 'battery_w' and value < 0): raise ValueError('Некоректний показник ' + key)
-                        s[key] = value
+                s=read_sample(c)
             s.update(t=time.time(),demo=c['mode']=='demo',site_id=c['active_site'])
             if config()['active_site'] != c['active_site']: continue
             with STATE_LOCK:
@@ -364,7 +411,7 @@ def poll():
             was_online=True
         except Exception as e:
             with STATE_LOCK:
-                STATE.update(online=False,error=str(e))
+                STATE.update(online=False,error=str(e) or type(e).__name__)
                 SITE_STATES[c['active_site']] = dict(STATE)
             if was_online is True: notify('Втрачено зв’язок з інвертором; прогноз призупинено')
             was_online=False
@@ -376,12 +423,7 @@ def background_poll():
         identity=site['id']
         try:
             if site['mode'] not in ('modbus_tcp','solarman_v5'): return
-            m=inverter(site)
-            point={key:m.read(site['registers'][key]) for key in ('soc','pv_w','load_w','grid_on')}
-            if not all(math.isfinite(v) for v in point.values()) or not 0<=point['soc']<=100 or min(point['pv_w'],point['load_w'])<0: raise ValueError('Некоректні вимірювання')
-            point['grid_on']=bool(point['grid_on'])
-            for key in ('grid_import_w','grid_export_w','solar_direct_w','battery_w'):
-                if key in site['registers']: point[key]=m.read(site['registers'][key])
+            point=read_sample(site)
             point.update(t=time.time(),demo=False,site_id=identity)
             with STATE_LOCK: SITE_STATES[identity]=dict(online=True,demo=False,error=None,sample=point)
             with db() as d: d.execute('INSERT INTO samples VALUES(?,?)',(point['t'],json.dumps(point)))
@@ -389,7 +431,7 @@ def background_poll():
             if old is not None and old != point['grid_on']: notify(('Мережа повернулася' if point['grid_on'] else 'Мережа зникла')+' · '+site.get('address',identity)+' · SOC '+str(point['soc'])+'%')
             previous[identity]=point['grid_on']
         except Exception as e:
-            with STATE_LOCK: SITE_STATES[identity]=dict(online=False,demo=False,error=str(e),sample=SITE_STATES.get(identity,{}).get('sample'))
+            with STATE_LOCK: SITE_STATES[identity]=dict(online=False,demo=False,error=str(e) or type(e).__name__,sample=SITE_STATES.get(identity,{}).get('sample'))
     with ThreadPoolExecutor(max_workers=8) as pool:
         while True:
             started=time.monotonic();c=config()
