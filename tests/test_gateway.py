@@ -1,0 +1,64 @@
+import importlib.util,os,tempfile,unittest,json,time
+from pathlib import Path
+from unittest.mock import patch
+os.environ['DEYE_DATA']=tempfile.mkdtemp()
+spec=importlib.util.spec_from_file_location('gateway',Path(__file__).parents[1]/'gateway/app.py');app=importlib.util.module_from_spec(spec);spec.loader.exec_module(app)
+class GatewayTests(unittest.TestCase):
+ def setUp(self):
+  app.save(dict(app.DEFAULT));app.db().close()
+  with app.db() as d:d.execute('DELETE FROM samples');d.execute('DELETE FROM audit')
+ def test_capacity_and_limits(self):
+  c=app.DEFAULT|{'batteries':[{'name':'A','nominal_kwh':10,'usable_pct':70}]};self.assertEqual(app.validate(c)['capacity_kwh'],7)
+  with self.assertRaises(ValueError):app.validate(c|{'reserve_soc':95,'target_soc':50})
+ def test_unknown_energy_and_coverage(self):
+  t=time.time();p=dict(pv_w=1000,load_w=500,demo=True)
+  with app.db() as d:
+   for ts in (t-60,t-30):d.execute('INSERT INTO samples VALUES(?,?)',(ts,json.dumps(p)))
+  r=app.report();self.assertAlmostEqual(r['pv_kwh'],.0083,places=4);self.assertIsNone(r['grid_import_kwh']);self.assertEqual(r['metric_coverage_hours']['grid_import_kwh'],0)
+ def test_report_separates_demo_and_real(self):
+  t=time.time()
+  with app.db() as d:
+   for ts in (t-60,t-30):d.execute('INSERT INTO samples VALUES(?,?)',(ts,json.dumps(dict(pv_w=1000,load_w=500,demo=False))))
+  self.assertEqual(app.report()['samples'],0)
+ def test_bad_period(self):
+  for v in ('nan','inf',-1,3000):
+   with self.assertRaises(ValueError):app.report(v)
+ def test_write_disabled(self):
+  with self.assertRaises(ValueError):app.write_setting('target_soc',80,'test')
+ def test_verified_write_and_readback(self):
+  c=app.DEFAULT|{'mode':'modbus_tcp','verified_profile':True,'allow_writes':True,'registers':{'target_soc':{'address':100,'scale':1,'min':30,'max':100,'writable':True}}};app.save(c)
+  with patch.object(app.Modbus,'read',side_effect=[60,80]),patch.object(app.Modbus,'request') as request:
+   self.assertEqual(app.write_setting('target_soc',80,'test'),80);request.assert_called_once_with(6,100,80)
+  with app.db() as d:self.assertEqual(d.execute('SELECT COUNT(*) FROM audit').fetchone()[0],2)
+  with self.assertRaises(ValueError):app.write_setting('target_soc',101,'test')
+ def test_readback_mismatch_fails(self):
+  c=app.DEFAULT|{'mode':'modbus_tcp','verified_profile':True,'allow_writes':True,'registers':{'soc_limit':{'address':100,'min':0,'max':100,'writable':True}}};app.save(c)
+  with patch.object(app.Modbus,'read',side_effect=[20,20]),patch.object(app.Modbus,'request'):
+   with self.assertRaisesRegex(ValueError,'читання'):app.write_setting('soc_limit',30,'test')
+if __name__=='__main__':unittest.main()
+
+class HouseholdTests(unittest.TestCase):
+ def setUp(self):app.save(dict(app.DEFAULT));app.db().close()
+ def test_site_added_locked_and_switch_preserves_profile(self):
+  c=app.config();c['address']='Original';app.save(c)
+  site=app.add_site({'host':'192.168.1.25','port':502,'name':'House 2'})
+  app.select_site(site['site_id']);c=app.config()
+  self.assertEqual(c['host'],'192.168.1.25');self.assertFalse(c['allow_writes']);self.assertFalse(c['verified_profile']);self.assertEqual(c['registers'],{})
+  app.select_site('default');self.assertEqual(app.config()['address'],'Original')
+ def test_public_and_large_scans_rejected(self):
+  for cidr in ('8.8.8.0/24','192.168.0.0/16','127.0.0.0/24','::1/128'):
+   with self.assertRaises(ValueError):app.discover_network(cidr)
+ def test_scan_candidates_no_register_writes(self):
+  from unittest.mock import MagicMock
+  def probe(address,timeout):
+   if address==('192.168.1.1',502):return MagicMock()
+   raise OSError()
+  with patch.object(app.socket,'create_connection',side_effect=probe):
+   result=app.discover_network('192.168.1.0/30')
+  self.assertEqual(len(result['devices']),1);self.assertTrue(result['devices'][0]['supported'])
+ def test_battery_charge_discharge_channels(self):
+  t=time.time()
+  with app.db() as d:
+   d.execute('DELETE FROM samples')
+   for ts in (t-60,t-30):d.execute('INSERT INTO samples VALUES(?,?)',(ts,json.dumps(dict(pv_w=1000,load_w=500,battery_w=500,demo=True,site_id='default'))))
+  r=app.report();self.assertAlmostEqual(r['battery_charge_kwh'],.0042,places=4);self.assertEqual(r['battery_discharge_kwh'],0)

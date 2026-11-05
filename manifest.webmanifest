@@ -1,6 +1,6 @@
 {
   "id": "./",
-  "name": "Deye Control — демо",
+  "name": "DEYE Control — енергосистема",
   "short_name": "DEYE",
   "lang": "uk",
   "start_url": "./",
@@ -21,5 +21,6 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "description": "Моніторинг генерації, імпорту, експорту, батарей та керування через локальний сервер"
 }
