@@ -62,3 +62,31 @@ class HouseholdTests(unittest.TestCase):
    d.execute('DELETE FROM samples')
    for ts in (t-60,t-30):d.execute('INSERT INTO samples VALUES(?,?)',(ts,json.dumps(dict(pv_w=1000,load_w=500,battery_w=500,demo=True,site_id='default'))))
   r=app.report();self.assertAlmostEqual(r['battery_charge_kwh'],.0042,places=4);self.assertEqual(r['battery_discharge_kwh'],0)
+
+class SolarmanTests(unittest.TestCase):
+ def test_v5_factory_and_read(self):
+  from unittest.mock import MagicMock
+  import types,sys
+  client=MagicMock();client.read_holding_registers.return_value=[720]
+  factory=MagicMock(return_value=client)
+  c=app.DEFAULT|{'mode':'solarman_v5','host':'192.168.1.10','port':8899,'logger_serial':1234567890}
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
+   self.assertEqual(app.inverter(c).read({'address':100,'scale':.1}),72)
+  factory.assert_called_once_with('192.168.1.10',1234567890,port=8899,mb_slave_id=1,socket_timeout=5,auto_reconnect=False,verbose=False)
+  client.disconnect.assert_called_once()
+ def test_disconnect_on_error(self):
+  from unittest.mock import MagicMock
+  import types,sys
+  client=MagicMock();client.read_input_registers.side_effect=OSError('timeout')
+  c=app.DEFAULT|{'mode':'solarman_v5','logger_serial':123}
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
+   with self.assertRaises(OSError):app.inverter(c).read({'address':100,'function':4})
+  client.disconnect.assert_called_once()
+ def test_write_echo_required(self):
+  from unittest.mock import MagicMock
+  import types,sys
+  client=MagicMock();client.write_holding_register.return_value=10
+  c=app.DEFAULT|{'mode':'solarman_v5','logger_serial':123}
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
+   with self.assertRaises(OSError):app.inverter(c).request(6,100,20)
+  client.disconnect.assert_called_once()

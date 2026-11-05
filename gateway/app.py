@@ -11,7 +11,7 @@ STATIC = ROOT.parent
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
-DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[])
+DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[], logger_serial=0)
 
 def db():
     c = sqlite3.connect(DATA / 'history.sqlite')
@@ -37,10 +37,11 @@ def validate_batteries(batteries):
     return batteries
 
 def validate(c):
+    if not 0 <= int(c['logger_serial']) <= 0xffffffff: raise ValueError('Некоректний серійний номер логера')
     validate_batteries(c['batteries'])
     if not 0 <= float(c['reserve_soc']) < float(c['target_soc']) <= 100: raise ValueError('Потрібно 0 ≤ мінімум SOC < ціль SOC ≤ 100')
     if c['batteries']: c['capacity_kwh'] = battery_capacity(c['batteries'])
-    if c['mode'] not in ('demo', 'modbus_tcp'): raise ValueError('Невідомий режим')
+    if c['mode'] not in ('demo', 'modbus_tcp', 'solarman_v5'): raise ValueError('Невідомий режим')
     for key, lo, hi in [('capacity_kwh', .1, 10000), ('reserve_soc', 0, 100), ('efficiency', .1, 1), ('port', 1, 65535), ('unit', 1, 247), ('warning_minutes', 1, 1440), ('poll_seconds', 2, 60)]:
         n = float(c[key])
         if not math.isfinite(n) or not lo <= n <= hi: raise ValueError('Некоректне поле: ' + key)
@@ -100,6 +101,31 @@ class Modbus:
         if r.get('signed') and v >= 32768: v -= 65536
         return v * float(r.get('scale', 1))
 
+class SolarmanV5(Modbus):
+    def request(self, function, address, value):
+        try:
+            from pysolarmanv5 import PySolarmanV5
+        except ImportError as e:
+            raise ValueError('Встановіть драйвер: python -m pip install -r gateway/requirements.txt') from e
+        serial = int(self.c.get('logger_serial',0))
+        if not 0 < serial <= 0xffffffff: raise ValueError('Вкажіть серійний номер логера Solarman (не інвертора)')
+        client=PySolarmanV5(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=5,auto_reconnect=False,verbose=False)
+        try:
+            if function in (3,4):
+                reader=client.read_holding_registers if function==3 else client.read_input_registers
+                data=reader(address,1)
+                if len(data)!=1: raise OSError('Некоректна відповідь Solarman V5')
+                return data[0]
+            if function==6:
+                actual=client.write_holding_register(address,value)
+                if actual!=value: raise OSError('Запис Solarman не підтверджено')
+                return actual
+            raise ValueError('Непідтримувана функція Solarman')
+        finally: client.disconnect()
+
+def inverter(c):
+    return SolarmanV5(c) if c['mode']=='solarman_v5' else Modbus(c)
+
 STATE = dict(online=False, demo=True, error='Очікування опитування', sample=None)
 STATE_LOCK = threading.RLock()
 SITE_STATES = {}
@@ -154,7 +180,7 @@ def status():
 def write_setting(name, value, actor):
     with LOCK:
         c = config(); r = c['registers'].get(name, {})
-        if c['mode'] != 'modbus_tcp' or not c['verified_profile'] or not c['allow_writes'] or not r.get('writable'): raise ValueError('Запис заблоковано: потрібен перевірений профіль і дозвіл')
+        if c['mode'] not in ('modbus_tcp','solarman_v5') or not c['verified_profile'] or not c['allow_writes'] or not r.get('writable'): raise ValueError('Запис заблоковано: потрібен перевірений профіль і дозвіл')
         value = float(value)
         if name == 'reserve_soc' and not value < float(c['target_soc']): raise ValueError('Мінімальний SOC має бути нижче цільового')
         if name == 'target_soc' and not value > float(c['reserve_soc']): raise ValueError('Цільовий SOC має бути вище мінімального')
@@ -163,7 +189,7 @@ def write_setting(name, value, actor):
         if abs(raw-round(raw)) > 1e-6: raise ValueError('Значення не відповідає кроку регістра')
         raw = round(raw)
         if not (-32768 if r.get('signed') else 0) <= raw <= (32767 if r.get('signed') else 65535): raise ValueError('Переповнення регістра')
-        m = Modbus(c); old = m.read(r)
+        m = inverter(c); old = m.read(r)
         with db() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'REQUESTED ' + str(value)))
         m.request(6, int(r['address']), raw & 65535)
         actual = m.read(r)
@@ -241,7 +267,7 @@ def report(hours=24):
 def capabilities():
     c=config()
     writable={}
-    if c['mode']=='modbus_tcp' and c['verified_profile'] and c['allow_writes']:
+    if c['mode'] in ('modbus_tcp','solarman_v5') and c['verified_profile'] and c['allow_writes']:
         for name,r in c['registers'].items():
             if r.get('writable'): writable[name] = {k:r[k] for k in ('min','max','scale','label','unit') if k in r}
     return dict(protocol='deye-control-v4',writable=writable,metrics=list(c['registers']),demo=c['mode']=='demo')
@@ -292,7 +318,7 @@ def poll():
                 except Exception: notify('Не вдалося оновити графік. Збережений графік може бути застарілим.')
             if c['mode']=='demo': s=dict(soc=72.,pv_w=1400.,load_w=800.,grid_on=True,grid_import_w=0.,grid_export_w=100.,solar_direct_w=800.,battery_w=500.)
             else:
-                m=Modbus(c); s={k:m.read(c['registers'][k]) for k in ('soc','pv_w','load_w','grid_on')}
+                m=inverter(c); s={k:m.read(c['registers'][k]) for k in ('soc','pv_w','load_w','grid_on')}
                 if not all(math.isfinite(x) for x in s.values()) or not 0<=s['soc']<=100 or s['load_w']<0 or s['pv_w']<0: raise ValueError('Некоректні вимірювання / профіль')
                 s['grid_on']=bool(s['grid_on'])
                 for key in ('grid_import_w', 'grid_export_w', 'solar_direct_w', 'battery_w'):
@@ -337,8 +363,8 @@ def background_poll():
     def collect(site):
         identity=site['id']
         try:
-            if site['mode'] != 'modbus_tcp': return
-            m=Modbus(site)
+            if site['mode'] not in ('modbus_tcp','solarman_v5'): return
+            m=inverter(site)
             point={key:m.read(site['registers'][key]) for key in ('soc','pv_w','load_w','grid_on')}
             if not all(math.isfinite(v) for v in point.values()) or not 0<=point['soc']<=100 or min(point['pv_w'],point['load_w'])<0: raise ValueError('Некоректні вимірювання')
             point['grid_on']=bool(point['grid_on'])
@@ -359,7 +385,7 @@ def background_poll():
             list(pool.map(collect,profiles))
             time.sleep(max(.2,float(c['poll_seconds'])-(time.monotonic()-started)))
 
-SITE_FIELDS = ('address','group','host','port','unit','mode','registers','verified_profile','allow_writes','batteries','capacity_kwh','reserve_soc','target_soc','outages','schedule_url')
+SITE_FIELDS = ('logger_serial','address','group','host','port','unit','mode','registers','verified_profile','allow_writes','batteries','capacity_kwh','reserve_soc','target_soc','outages','schedule_url')
 
 def site_list():
     c=config()
@@ -391,7 +417,7 @@ def add_site(body):
     with LOCK:
         c=config()
         if len(c['sites']) >= 64: raise ValueError('До 64 домогосподарств на сервер')
-        site={k:DEFAULT[k] for k in SITE_FIELDS};site.update(id=secrets.token_hex(6),host=host,port=int(body.get('port',502)),address=str(body.get('name') or host)[:160],mode='modbus_tcp',registers={},verified_profile=False,allow_writes=False)
+        site={k:DEFAULT[k] for k in SITE_FIELDS};site.update(id=secrets.token_hex(6),host=host,port=int(body.get('port',502)),address=str(body.get('name') or host)[:160],mode='solarman_v5' if int(body.get('port',502))==8899 else 'modbus_tcp',registers={},verified_profile=False,allow_writes=False)
         c['sites']=[*c['sites'],site];save(c)
         return dict(ok=True,site_id=site['id'])
 
@@ -404,7 +430,7 @@ def discover_network(cidr):
         host,port=item
         try:
             with socket.create_connection((host,port),timeout=.25):
-                return dict(host=host,port=port,protocol='Modbus TCP — кандидат' if port==502 else 'Solarman — кандидат; потрібен V5-драйвер',supported=port==502)
+                return dict(host=host,port=port,protocol='Modbus TCP — кандидат' if port==502 else 'Solarman V5 — кандидат; потрібен серійний номер логера',supported=True)
         except OSError: return None
     with ThreadPoolExecutor(max_workers=48) as pool: found=[x for x in pool.map(probe,jobs) if x]
     return dict(devices=found,note='Перевірено лише доступність TCP-портів. Модель, серійний номер і карта регістрів не визначалися. Записів в обладнання не було.')
