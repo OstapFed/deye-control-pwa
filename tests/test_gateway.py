@@ -114,3 +114,13 @@ class CompositeProfileTests(unittest.TestCase):
   with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}),patch.dict(os.environ,{'DEYE_DATA':dest}),patch.object(sys,'argv',['configure','--host','192.168.1.10','--serial','123','--apply']),patch('builtins.print'):
    self.assertEqual(m.main(),0)
   c=json.loads((Path(dest)/'config.json').read_text());self.assertFalse(c['allow_writes']);self.assertFalse(c['verified_profile']);self.assertEqual(c['registers']['soc']['address'],588);client.write_holding_register.assert_not_called()
+
+class HttpDisconnectTests(unittest.TestCase):
+ def test_browser_disconnects_do_not_escape(self):
+  handler=object.__new__(app.Handler)
+  for error in (ConnectionAbortedError(10053,'browser aborted'),ConnectionResetError('reset'),BrokenPipeError('closed')):
+   with patch.object(app.BaseHTTPRequestHandler,'handle',side_effect=error):handler.handle()
+ def test_other_errors_are_not_hidden(self):
+  handler=object.__new__(app.Handler)
+  with patch.object(app.BaseHTTPRequestHandler,'handle',side_effect=OSError('server error')):
+   with self.assertRaises(OSError):handler.handle()

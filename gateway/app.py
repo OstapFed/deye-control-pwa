@@ -449,6 +449,13 @@ def discover_network(cidr):
 
 PASSWORD=os.environ.get('DEYE_PASSWORD','')
 class Handler(BaseHTTPRequestHandler):
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            # A browser may cancel static fetches or close a stream during navigation.
+            # Leave unrelated OSErrors visible so server failures are still diagnosed.
+            return
     def log_message(self,*args): pass
     def end_headers(self):
         origin = self.headers.get('Origin', '')
