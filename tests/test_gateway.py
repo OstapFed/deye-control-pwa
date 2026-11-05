@@ -148,3 +148,19 @@ class BatchedSolarmanTests(unittest.TestCase):
    with self.assertRaises(TimeoutError):app.read_sample(self.profile())
    self.assertEqual(app.read_sample(self.profile())['soc'],50)
   bad.disconnect.assert_called_once();good.disconnect.assert_called_once()
+
+class SetupRecoveryTests(unittest.TestCase):
+ def module(self):
+  spec=importlib.util.spec_from_file_location('configure_retry',Path(__file__).parents[1]/'gateway/configure_deye.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
+ def test_empty_timeout_has_type_and_stage(self):
+  import types,sys
+  from unittest.mock import MagicMock
+  m=self.module();args=types.SimpleNamespace(host='192.168.1.10',serial=123,unit=1,expected_inverter_serial=None)
+  with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(side_effect=TimeoutError()))}),patch('builtins.print'):
+   with self.assertRaisesRegex(RuntimeError,'TimeoutError at connecting to logger'):m.identify_and_read(args,1)
+ def test_setup_retries_transient_error(self):
+  import sys
+  m=self.module()
+  with patch.object(sys,'argv',['configure','--host','192.168.1.10','--serial','123']),patch.object(m,'identify_and_read',side_effect=[RuntimeError('TimeoutError at identity'),{'soc':80}]) as reader,patch.object(m.time,'sleep') as sleep,patch('builtins.print'):
+   self.assertEqual(m.main(),0)
+  self.assertEqual(reader.call_count,2);sleep.assert_called_once_with(2)

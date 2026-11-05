@@ -7,6 +7,18 @@ $deyeRoot=Join-Path $env:LOCALAPPDATA 'DeyeControl'
 $deyeSource=Join-Path $deyeRoot 'source'
 $deyePython=Join-Path $deyeRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path $deyePython)) {throw 'Run install-windows.ps1 first.'}
+# Stop only our previously launched gateway; leave unrelated Python applications alone.
+$deyeAppPath=Join-Path $deyeSource 'gateway\app.py'
+$deyeAppPattern=[regex]::Escape($deyeAppPath)+'(?:"|\s|$)'
+Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" | Where-Object {
+ $_.CommandLine -and $_.CommandLine -match $deyeAppPattern
+} | ForEach-Object {
+ Write-Host ('Stopping previous DEYE gateway PID '+$_.ProcessId)
+ Stop-Process -Id $_.ProcessId -ErrorAction Stop
+}
+Start-Sleep -Seconds 2
+$env:PYTHONIOENCODING='utf-8'
+[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
 $deyeTemp=Join-Path ([IO.Path]::GetTempPath()) ('deye-connect-'+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $deyeTemp | Out-Null
 Invoke-WebRequest -UseBasicParsing 'https://github.com/OstapFed/deye-control-pwa/archive/refs/heads/main.zip' -OutFile (Join-Path $deyeTemp 'source.zip')
@@ -15,8 +27,9 @@ Get-ChildItem (Join-Path $deyeTemp 'deye-control-pwa-main') -Force | Copy-Item -
 $env:DEYE_DATA=Join-Path $deyeRoot 'data'
 $arguments=@((Join-Path $deyeSource 'gateway\configure_deye.py'),'--host',$LoggerHost,'--serial',"$LoggerSerial",'--apply')
 if ($ExpectedInverterSerial) {$arguments+=@('--expected-inverter-serial',$ExpectedInverterSerial)}
-& $deyePython @arguments
-if ($LASTEXITCODE -ne 0) {throw 'Read-only profile check failed. Send the error output.'}
+$deyeReport=Join-Path $deyeRoot 'live-connection-check.txt'
+& $deyePython @arguments 2>&1 | Tee-Object -FilePath $deyeReport
+if ($LASTEXITCODE -ne 0) {throw ('Read-only profile check failed. Detailed report: '+$deyeReport)}
 # Fresh local-only password, not printed or saved. It is passed to the local page in a fragment.
 $env:DEYE_PASSWORD=[Guid]::NewGuid().ToString('N')+[Guid]::NewGuid().ToString('N')
 $env:DEYE_BIND='127.0.0.1'
