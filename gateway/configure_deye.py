@@ -1,6 +1,7 @@
 """Read-only identification and profile setup for Deye SG04LP3 (LV three phase)."""
 import argparse,json,os,sys,time
 from pathlib import Path
+from solarman_io import PacedReader
 
 def decode_serial(words):return b''.join(int(x).to_bytes(2,'big') for x in words).decode('ascii').strip('\0 ')
 def signed16(v):return v-65536 if v>=32768 else v
@@ -9,13 +10,14 @@ def signed32(low,high):
  return v-(1<<32) if v>=(1<<31) else v
 
 def identify_and_read(args, attempt):
- client=None; stage='connecting to logger'
+ client=None; paced=None; stage='connecting to logger'
  try:
   from pysolarmanv5 import PySolarmanV5
   print('Attempt '+str(attempt)+'/3: connecting to '+args.host+':8899',flush=True)
-  client=PySolarmanV5(args.host,args.serial,port=8899,mb_slave_id=args.unit,socket_timeout=6,auto_reconnect=False,verbose=False)
+  factory=lambda: PySolarmanV5(args.host,args.serial,port=8899,mb_slave_id=args.unit,socket_timeout=6,auto_reconnect=False,verbose=False)
+  paced=PacedReader(factory,on_retry=lambda address,attempt,reason:print('Register '+str(address)+' attempt '+str(attempt)+'/3: '+reason,flush=True))
   stage='reading identity registers 0-9'; print(stage,flush=True)
-  info=client.read_holding_registers(0,10)
+  info=paced.read(0,10)
   if len(info)!=10:raise ValueError('Incomplete identity reply')
   if info[0] not in (5,0x0500):raise ValueError('Expected LV three-phase hybrid device type 5. No profile applied.')
   identity=decode_serial(info[3:8])
@@ -26,7 +28,7 @@ def identify_and_read(args, attempt):
   requests=[(x,1) for x in (552,587,588,590,625,653,659,672,673,690)]
   for start,count in requests:
    stage='reading registers '+str(start)+'-'+str(start+count-1); print(stage,flush=True)
-   values=client.read_holding_registers(start,count)
+   values=paced.read(start,count)
    if len(values)!=count:raise OSError('Incomplete register reply')
    cache.update({start+i:v for i,v in enumerate(values)})
   net=signed32(cache[625],cache[690]);load=signed32(cache[653],cache[659])
@@ -36,13 +38,13 @@ def identify_and_read(args, attempt):
  except Exception as error:
   raise RuntimeError(type(error).__name__+' at '+stage+': '+(str(error) or repr(error))) from error
  finally:
-  if client:client.disconnect()
+  if paced:paced.close()
 
 def main():
  p=argparse.ArgumentParser(description='Deye SG04LP3 read-only setup. No inverter writes.')
  p.add_argument('--host',required=True);p.add_argument('--serial',required=True,type=int);p.add_argument('--unit',type=int,default=1);p.add_argument('--expected-inverter-serial');p.add_argument('--apply',action='store_true')
  args=p.parse_args()
- print('DEYE BUILD: 2026.11.06-single-register-1 (single-register reads only)',flush=True)
+ print('DEYE BUILD: 2026.11.06-paced-retry-2 (paced reads and per-register retries)',flush=True)
  try:
   point=None; last_error=None
   for attempt in range(1,4):
@@ -60,7 +62,7 @@ def main():
    file=data/'config.json';c=json.loads(file.read_text(encoding='utf-8-sig')) if file.exists() else {}
    if file.exists(): (data/('config.backup-'+str(int(time.time()))+'.json')).write_bytes(file.read_bytes())
    registers=json.loads((root/'profiles/deye_sg04lp3_readonly.json').read_text())
-   c.update(mode='solarman_v5',host=args.host,port=8899,unit=args.unit,logger_serial=args.serial,registers=registers,verified_profile=False,allow_writes=False)
+   c.update(mode='solarman_v5',host=args.host,port=8899,unit=args.unit,logger_serial=args.serial,registers=registers,poll_seconds=10,verified_profile=False,allow_writes=False)
    temp=data/'config.pending';temp.write_text(json.dumps(c,ensure_ascii=False,indent=2),encoding='utf-8');temp.replace(file)
    print('Local read-only profile saved. Inverter settings unchanged. Writes remain DISABLED.')
   return 0

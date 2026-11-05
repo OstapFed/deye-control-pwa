@@ -1,7 +1,10 @@
-import importlib.util,os,tempfile,unittest,json,time
+import importlib.util,os,tempfile,unittest,json,time,sys
 from pathlib import Path
 from unittest.mock import patch
 os.environ['DEYE_DATA']=tempfile.mkdtemp()
+sys.path.insert(0,str(Path(__file__).parents[1]/'gateway'))
+import solarman_io
+solarman_io.time.sleep=lambda seconds: None
 spec=importlib.util.spec_from_file_location('gateway',Path(__file__).parents[1]/'gateway/app.py');app=importlib.util.module_from_spec(spec);spec.loader.exec_module(app)
 class GatewayTests(unittest.TestCase):
  def setUp(self):
@@ -147,11 +150,11 @@ class BatchedSolarmanTests(unittest.TestCase):
   import types,sys
   bad=MagicMock();bad.read_holding_registers.side_effect=TimeoutError('logger timeout')
   good=MagicMock();good.read_holding_registers.side_effect=lambda start,count:[50 if i==588 else 0 for i in range(start,start+count)]
-  factory=MagicMock(side_effect=[bad,good])
+  factory=MagicMock(side_effect=[bad,bad,bad,good])
   with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
-   with self.assertRaisesRegex(OSError,'TimeoutError at register 552'):app.read_sample(self.profile())
+   with self.assertRaisesRegex(OSError,'Register 552 failed after 3 attempts'):app.read_sample(self.profile())
    self.assertEqual(app.read_sample(self.profile())['soc'],50)
-  bad.disconnect.assert_called_once();good.disconnect.assert_called_once()
+  self.assertEqual(bad.disconnect.call_count,3);good.disconnect.assert_called_once()
 
 class SetupRecoveryTests(unittest.TestCase):
  def module(self):
@@ -161,10 +164,30 @@ class SetupRecoveryTests(unittest.TestCase):
   from unittest.mock import MagicMock
   m=self.module();args=types.SimpleNamespace(host='192.168.1.10',serial=123,unit=1,expected_inverter_serial=None)
   with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(side_effect=TimeoutError()))}),patch('builtins.print'):
-   with self.assertRaisesRegex(RuntimeError,'TimeoutError at connecting to logger'):m.identify_and_read(args,1)
+   with self.assertRaisesRegex(RuntimeError,'OSError at reading identity registers 0-9'):m.identify_and_read(args,1)
  def test_setup_retries_transient_error(self):
   import sys
   m=self.module()
   with patch.object(sys,'argv',['configure','--host','192.168.1.10','--serial','123']),patch.object(m,'identify_and_read',side_effect=[RuntimeError('TimeoutError at identity'),{'soc':80}]) as reader,patch.object(m.time,'sleep') as sleep,patch('builtins.print'):
    self.assertEqual(m.main(),0)
   self.assertEqual(reader.call_count,2);sleep.assert_called_once_with(2)
+
+class PacedReadTests(unittest.TestCase):
+ def test_retry_only_failed_register(self):
+  from unittest.mock import MagicMock,call
+  from solarman_io import PacedReader
+  first=MagicMock();first.read_holding_registers.side_effect=[[80],TimeoutError()]
+  second=MagicMock();second.read_holding_registers.side_effect=[[756],[633]]
+  factory=MagicMock(side_effect=[first,second]);reader=PacedReader(factory,delay=0)
+  self.assertEqual(reader.read(588),[80]);self.assertEqual(reader.read(625),[756]);self.assertEqual(reader.read(653),[633]);reader.close()
+  self.assertEqual(first.read_holding_registers.call_args_list,[call(588,1),call(625,1)])
+  self.assertEqual(second.read_holding_registers.call_args_list,[call(625,1),call(653,1)])
+  first.disconnect.assert_called_once();second.disconnect.assert_called_once();second.write_holding_register.assert_not_called()
+ def test_pacing_is_applied(self):
+  from unittest.mock import MagicMock
+  import solarman_io
+  reader=solarman_io.PacedReader(lambda:MagicMock(read_holding_registers=MagicMock(return_value=[80])),delay=.5)
+  reader.finished=10
+  with patch.object(solarman_io.time,'monotonic',return_value=10),patch.object(solarman_io.time,'sleep') as sleep:
+   reader.read(588)
+  sleep.assert_called_once_with(.5);reader.close()

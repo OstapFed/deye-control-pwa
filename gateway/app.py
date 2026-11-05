@@ -1,6 +1,7 @@
 import base64, csv, hashlib, hmac, io, json, math, os, secrets, socket, sqlite3, struct, threading, time, ipaddress
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
+from solarman_io import PacedReader
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -9,7 +10,7 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.06-single-register-1'
+APP_VERSION = '2026.11.06-paced-retry-2'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -129,6 +130,12 @@ class Modbus:
         return v
 
 class SolarmanV5(Modbus):
+    def _reader(self):
+        if not hasattr(self,'_paced'): self._paced=PacedReader(self._connect)
+        return self._paced
+    def close(self):
+        if hasattr(self,'_paced'): self._paced.close()
+        super().close()
     def _connect(self):
         try:
             from pysolarmanv5 import PySolarmanV5
@@ -147,16 +154,10 @@ class SolarmanV5(Modbus):
             fc=int(r.get('function',3))
             grouped[fc].update([int(r['address']),*map(int,r.get('sum_addresses',[]))])
             if 'address_high' in r: grouped[fc].add(int(r['address_high']))
-        client=self._session()
+        paced=self._reader()
         for fc,addresses in grouped.items():
-            reader=client.read_holding_registers if fc==3 else client.read_input_registers
-            # The installed logger answered individual words after timing out on blocks.
-            # Share one session and cache exact words; never read across unused gaps.
             for address in sorted(addresses):
-                try: values=reader(address,1)
-                except Exception as error:
-                    raise OSError(type(error).__name__+' at register '+str(address)+': '+(str(error) or repr(error))) from error
-                if len(values)!=1: raise OSError('Неповна відповідь Solarman, регістр '+str(address))
+                values=paced.read(address,1,fc)
                 self._cache[(fc,address)]=values[0]
     def request(self, function, address, value):
         if function in (3,4) and (function,address) in self._cache: return self._cache[(function,address)]
@@ -184,6 +185,7 @@ def read_sample(c):
     optional=('grid_import_w','grid_export_w','solar_direct_w','battery_w')
     missing=[key for key in required if key not in c['registers']]
     if missing: raise ValueError('У профілі відсутні канали: '+', '.join(missing))
+    collection_started=time.time()
     with inverter(c) as m:
         m.prefetch([c['registers'][key] for key in (*required,*optional) if key in c['registers']])
         point={key:m.read(c['registers'][key]) for key in (*required,*optional) if key in c['registers']}
@@ -191,6 +193,7 @@ def read_sample(c):
     for key in ('grid_import_w','grid_export_w','solar_direct_w'):
         if key in point and point[key]<0: raise ValueError('Некоректний показник '+key)
     point['grid_on']=bool(point['grid_on'])
+    point.update(t=collection_started,collection_seconds=time.time()-collection_started)
     return point
 
 STATE = dict(online=False, demo=True, error='Очікування опитування', sample=None)
@@ -388,7 +391,8 @@ def poll():
             if c['mode']=='demo': s=dict(soc=72.,pv_w=1400.,load_w=800.,grid_on=True,grid_import_w=0.,grid_export_w=100.,solar_direct_w=800.,battery_w=500.)
             else:
                 s=read_sample(c)
-            s.update(t=time.time(),demo=c['mode']=='demo',site_id=c['active_site'])
+            s.setdefault('t',time.time())
+            s.update(demo=c['mode']=='demo',site_id=c['active_site'])
             if config()['active_site'] != c['active_site']: continue
             with STATE_LOCK:
                 STATE.update(online=True,demo=s['demo'],error=None,sample=s)
@@ -426,7 +430,8 @@ def background_poll():
         try:
             if site['mode'] not in ('modbus_tcp','solarman_v5'): return
             point=read_sample(site)
-            point.update(t=time.time(),demo=False,site_id=identity)
+            point.setdefault('t',time.time())
+            point.update(demo=False,site_id=identity)
             with STATE_LOCK: SITE_STATES[identity]=dict(online=True,demo=False,error=None,sample=point)
             with db() as d: d.execute('INSERT INTO samples VALUES(?,?)',(point['t'],json.dumps(point)))
             old=previous.get(identity)
