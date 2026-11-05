@@ -22,11 +22,8 @@ def identify_and_read(args, attempt):
   if args.expected_inverter_serial and identity!=args.expected_inverter_serial:raise ValueError('Inverter serial does not match expected device.')
   print('Inverter serial: '+identity,flush=True)
   cache={}
-  if attempt==1:
-   requests=[(550,10),(586,14),(620,40),(672,23)]
-  else:
-   # Some firmwares/loggers reject larger blocks. Retry just the necessary words.
-   requests=[(x,1) for x in (552,587,588,590,625,653,659,672,673,690)]
+  # Use the exact single-register read mode that succeeded on the installed logger.
+  requests=[(x,1) for x in (552,587,588,590,625,653,659,672,673,690)]
   for start,count in requests:
    stage='reading registers '+str(start)+'-'+str(start+count-1); print(stage,flush=True)
    values=client.read_holding_registers(start,count)

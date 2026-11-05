@@ -133,11 +133,15 @@ class BatchedSolarmanTests(unittest.TestCase):
   from unittest.mock import MagicMock
   import types,sys
   values={588:80,672:0,673:0,653:665,659:0,552:4,625:958,690:0,590:65365}
-  client=MagicMock();client.read_holding_registers.side_effect=lambda start,count:[values.get(i,0) for i in range(start,start+count)]
+  client=MagicMock()
+  def exact_words(start,count):
+   if count!=1:raise TimeoutError('large block unsupported')
+   return [values.get(start,0)]
+  client.read_holding_registers.side_effect=exact_words
   factory=MagicMock(return_value=client)
   with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):p=app.read_sample(self.profile())
   self.assertEqual(p['soc'],80);self.assertEqual(p['load_w'],665);self.assertEqual(p['grid_import_w'],958);self.assertEqual(p['grid_export_w'],0);self.assertEqual(p['battery_w'],171)
-  factory.assert_called_once();client.disconnect.assert_called_once();self.assertLessEqual(client.read_holding_registers.call_count,4)
+  factory.assert_called_once();client.disconnect.assert_called_once();self.assertEqual(client.read_holding_registers.call_count,9);self.assertTrue(all(call.args[1]==1 for call in client.read_holding_registers.call_args_list))
  def test_failure_closes_session_and_next_cycle_reconnects(self):
   from unittest.mock import MagicMock
   import types,sys
@@ -145,7 +149,7 @@ class BatchedSolarmanTests(unittest.TestCase):
   good=MagicMock();good.read_holding_registers.side_effect=lambda start,count:[50 if i==588 else 0 for i in range(start,start+count)]
   factory=MagicMock(side_effect=[bad,good])
   with patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
-   with self.assertRaises(TimeoutError):app.read_sample(self.profile())
+   with self.assertRaisesRegex(OSError,'TimeoutError at register 552'):app.read_sample(self.profile())
    self.assertEqual(app.read_sample(self.profile())['soc'],50)
   bad.disconnect.assert_called_once();good.disconnect.assert_called_once()
 

@@ -148,15 +148,15 @@ class SolarmanV5(Modbus):
             if 'address_high' in r: grouped[fc].add(int(r['address_high']))
         client=self._session()
         for fc,addresses in grouped.items():
-            groups=[]
-            for address in sorted(addresses):
-                if groups and address-groups[-1][0]<40: groups[-1][1]=address
-                else: groups.append([address,address])
             reader=client.read_holding_registers if fc==3 else client.read_input_registers
-            for start,end in groups:
-                values=reader(start,end-start+1)
-                if len(values)!=end-start+1: raise OSError('Неповна пакетна відповідь Solarman V5')
-                self._cache.update({(fc,start+i):v for i,v in enumerate(values)})
+            # The installed logger answered individual words after timing out on blocks.
+            # Share one session and cache exact words; never read across unused gaps.
+            for address in sorted(addresses):
+                try: values=reader(address,1)
+                except Exception as error:
+                    raise OSError(type(error).__name__+' at register '+str(address)+': '+(str(error) or repr(error))) from error
+                if len(values)!=1: raise OSError('Неповна відповідь Solarman, регістр '+str(address))
+                self._cache[(fc,address)]=values[0]
     def request(self, function, address, value):
         if function in (3,4) and (function,address) in self._cache: return self._cache[(function,address)]
         client=self._session() if self._batch else self._connect()
