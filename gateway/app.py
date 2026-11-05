@@ -150,7 +150,7 @@ class SolarmanV5(Modbus):
         for fc,addresses in grouped.items():
             groups=[]
             for address in sorted(addresses):
-                if groups and address-groups[-1][1]<=16 and address-groups[-1][0]<40: groups[-1][1]=address
+                if groups and address-groups[-1][0]<40: groups[-1][1]=address
                 else: groups.append([address,address])
             reader=client.read_holding_registers if fc==3 else client.read_input_registers
             for start,end in groups:
