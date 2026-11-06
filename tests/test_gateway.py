@@ -213,3 +213,18 @@ class ConfigEncodingTests(NoSleepTestCase):
   path=Path(tempfile.mkdtemp())/'config.json';raw=b'{broken JSON';path.write_bytes(raw)
   with self.assertRaises(json.JSONDecodeError):read_config(path)
   self.assertEqual(path.read_bytes(),raw)
+
+class LocalSessionTests(NoSleepTestCase):
+ def handler(self,address,cookie='',authorization=''):
+  h=object.__new__(app.Handler);h.client_address=(address,12345);h.headers={'Cookie':cookie,'Authorization':authorization};return h
+ def test_local_cookie_accepts_stale_tab_password(self):
+  h=self.handler('127.0.0.1','deye_local_session='+app.LOCAL_SESSION_TOKEN,'Basic wrong-old-password')
+  self.assertTrue(h.auth())
+ def test_cookie_not_accepted_from_remote_client(self):
+  h=self.handler('192.168.1.50','deye_local_session='+app.LOCAL_SESSION_TOKEN)
+  with patch.object(h,'send') as send:self.assertFalse(h.auth())
+  self.assertEqual(send.call_args.args[0],401)
+ def test_invalid_cookie_does_not_authenticate(self):
+  h=self.handler('127.0.0.1','deye_local_session=wrong')
+  with patch.object(h,'send') as send:self.assertFalse(h.auth())
+  self.assertEqual(send.call_args.args[0],401)

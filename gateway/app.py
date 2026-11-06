@@ -6,13 +6,14 @@ from solarman_client import create_v5_client
 from config_storage import read_config
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.06-utf8-config-4'
+APP_VERSION = '2026.11.06-local-session-5'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -499,6 +500,7 @@ def discover_network(cidr):
     return dict(devices=found,note='Перевірено лише доступність TCP-портів. Модель, серійний номер і карта регістрів не визначалися. Записів в обладнання не було.')
 
 PASSWORD=os.environ.get('DEYE_PASSWORD','')
+LOCAL_SESSION_TOKEN=secrets.token_urlsafe(32)
 class Handler(BaseHTTPRequestHandler):
     def handle(self):
         try:
@@ -519,14 +521,22 @@ class Handler(BaseHTTPRequestHandler):
         super().end_headers()
     def do_OPTIONS(self):
         self.send_response(204); self.end_headers()
-    def send(self, code, body, kind='application/json'):
+    def send(self, code, body, kind='application/json', extra_headers=None):
         data=body.encode() if isinstance(body,str) else body
-        self.send_response(code); self.send_header('Content-Type',kind+'; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
+        self.send_response(code)
+        for key,value in (extra_headers or {}).items(): self.send_header(key,value)
+        self.send_header('Content-Type',kind+'; charset=utf-8'); self.send_header('Cache-Control','no-store'); self.send_header('X-Content-Type-Options','nosniff'); self.send_header('Content-Length',str(len(data))); self.end_headers(); self.wfile.write(data)
     def auth(self):
+        local=self.client_address[0] in ('127.0.0.1','::1')
+        cookies=SimpleCookie()
+        try: cookies.load(self.headers.get('Cookie',''))
+        except Exception: pass
+        session=cookies.get('deye_local_session')
+        if local and session and hmac.compare_digest(session.value,LOCAL_SESSION_TOKEN): return True
         expected='Basic '+base64.b64encode(('admin:'+PASSWORD).encode()).decode()
-        if not hmac.compare_digest(self.headers.get('Authorization',''),expected):
-            self.send_response(401); self.send_header('WWW-Authenticate','Basic realm="Deye"'); self.end_headers(); return False
-        return True
+        if hmac.compare_digest(self.headers.get('Authorization',''),expected): return True
+        self.send(401,json.dumps({'error':'Потрібне повторне підключення: відкрийте панель через скрипт запуску або введіть пароль сервера.'},ensure_ascii=False))
+        return False
     def do_GET(self):
         parsed = urlsplit(self.path)
         query = parse_qs(parsed.query)
@@ -572,6 +582,11 @@ class Handler(BaseHTTPRequestHandler):
             n=int(self.headers.get('Content-Length','0'))
             if not 0<n<=1000000: raise ValueError('Розмір запиту')
             body=json.loads(self.rfile.read(n))
+            if self.path in ('/api/session','/api/session/logout'):
+                if self.client_address[0] not in ('127.0.0.1','::1'): raise ValueError('Локальна сесія доступна лише через loopback')
+                active=self.path=='/api/session'
+                cookie='deye_local_session='+ (LOCAL_SESSION_TOKEN if active else '')+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age='+('86400' if active else '0')
+                return self.send(200,json.dumps({'ok':True}),extra_headers={'Set-Cookie':cookie})
             if self.path=='/api/config':
                 if set(body)-set(DEFAULT): raise ValueError('Невідомі поля')
                 with LOCK: save(config() | body)
