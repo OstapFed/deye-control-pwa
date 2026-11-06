@@ -51,4 +51,23 @@ try {
  Write-Host 'Local DEYE panel opened. Keep the Python server window running.' -ForegroundColor Green
  Write-Host 'Compare readings with the inverter display; all inverter writes remain disabled.'
  Write-Host 'Phone access over the internet still requires HTTPS/VPN setup.'
+ Write-Host 'Checking for new inverter measurements for 30 seconds...'
+ $deyeAuth='Basic '+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('admin:'+$env:DEYE_PASSWORD))
+ $deyeHealth=@()
+ for ($check=0;$check -lt 6;$check++) {
+  Start-Sleep -Seconds 5
+  try {
+   $health=Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/status' -Headers @{Authorization=$deyeAuth} -TimeoutSec 5
+   $deyeHealth+=@{checked_at=[DateTimeOffset]::UtcNow.ToString('o');version=$health.version;online=$health.online;error=$health.error;sample=$health.sample}
+   if ($health.online -and $health.sample) {Write-Host ('Sample timestamp: '+$health.sample.t+'; SOC: '+$health.sample.soc+'%')}
+   elseif ($health.error) {Write-Host ('Waiting for logger: '+$health.error) -ForegroundColor Yellow}
+  } catch {$deyeHealth+=@{checked_at=[DateTimeOffset]::UtcNow.ToString('o');online=$false;error=$_.Exception.Message}}
+ }
+ $deyeReport=Join-Path $deyeRoot 'stability-check.json'
+ [IO.File]::WriteAllText($deyeReport,($deyeHealth | ConvertTo-Json -Depth 10),(New-Object Text.UTF8Encoding($false)))
+ $freshTimes=@($deyeHealth | Where-Object {$_.online -and $_.sample -and -not $_.sample.demo} | ForEach-Object {$_.sample.t} | Select-Object -Unique)
+ if ($freshTimes.Count -ge 2) {Write-Host ('LIVE CHECK PASSED: '+$freshTimes.Count+' distinct measurements received. This is a short check, not a guarantee of long-term stability.') -ForegroundColor Green}
+ else {Write-Host 'LIVE CHECK NOT PASSED: fewer than two new measurements. See stability-check.json.' -ForegroundColor Yellow}
+ Write-Host ('Diagnostic report: '+$deyeReport)
+
 } finally {Remove-Item Env:DEYE_PASSWORD -ErrorAction SilentlyContinue}

@@ -1,5 +1,6 @@
 """Read-only Solarman V5 probe. Does not write registers or modify configuration."""
 import argparse,json,sys
+from solarman_client import create_v5_client
 
 def main():
     parser=argparse.ArgumentParser(description='Перевірка читання Solarman V5 без запису налаштувань')
@@ -11,11 +12,11 @@ def main():
     parser.add_argument('--count',type=int,default=10)
     args=parser.parse_args()
     if not 0<args.serial<=0xffffffff or not 0<=args.start<=65535 or not 1<=args.count<=40 or args.start+args.count>65536:parser.error('Перевірте SN, адресу та кількість (1–40)')
-    try:from pysolarmanv5 import PySolarmanV5
+    try:import pysolarmanv5
     except ImportError:raise SystemExit('Спочатку: py -m pip install -r gateway/requirements.txt')
     client=None
     try:
-        client=PySolarmanV5(args.host,args.serial,port=args.port,mb_slave_id=args.unit,socket_timeout=6,auto_reconnect=False,verbose=False)
+        client=create_v5_client(args.host,args.serial,port=args.port,mb_slave_id=args.unit,socket_timeout=6,auto_reconnect=False,verbose=False)
         data=client.read_holding_registers(args.start,args.count)
         print('Solarman V5: отримано відповідь на читання. Налаштування не змінювалися.')
         print(json.dumps({str(args.start+i):value for i,value in enumerate(data)},indent=2))

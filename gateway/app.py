@@ -2,6 +2,7 @@ import base64, csv, hashlib, hmac, io, json, math, os, secrets, socket, sqlite3,
 from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 from solarman_io import PacedReader
+from solarman_client import create_v5_client
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -10,7 +11,7 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.06-paced-retry-2'
+APP_VERSION = '2026.11.06-framed-transport-3'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -138,12 +139,12 @@ class SolarmanV5(Modbus):
         super().close()
     def _connect(self):
         try:
-            from pysolarmanv5 import PySolarmanV5
+            import pysolarmanv5
         except ImportError as e:
             raise ValueError('Встановіть драйвер: python -m pip install -r gateway/requirements.txt') from e
         serial=int(self.c.get('logger_serial',0))
         if not 0<serial<=0xffffffff: raise ValueError('Вкажіть серійний номер логера Solarman (не інвертора)')
-        return PySolarmanV5(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=5,auto_reconnect=False,verbose=False)
+        return create_v5_client(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=5,auto_reconnect=False,verbose=False)
     def _session(self):
         if self._client is None: self._client=self._connect()
         return self._client

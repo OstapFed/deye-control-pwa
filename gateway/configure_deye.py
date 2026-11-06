@@ -2,6 +2,7 @@
 import argparse,json,os,sys,time
 from pathlib import Path
 from solarman_io import PacedReader
+from solarman_client import create_v5_client
 
 def decode_serial(words):return b''.join(int(x).to_bytes(2,'big') for x in words).decode('ascii').strip('\0 ')
 def signed16(v):return v-65536 if v>=32768 else v
@@ -12,9 +13,9 @@ def signed32(low,high):
 def identify_and_read(args, attempt):
  client=None; paced=None; stage='connecting to logger'
  try:
-  from pysolarmanv5 import PySolarmanV5
+  import pysolarmanv5
   print('Attempt '+str(attempt)+'/3: connecting to '+args.host+':8899',flush=True)
-  factory=lambda: PySolarmanV5(args.host,args.serial,port=8899,mb_slave_id=args.unit,socket_timeout=6,auto_reconnect=False,verbose=False)
+  factory=lambda: create_v5_client(args.host,args.serial,port=8899,mb_slave_id=args.unit,socket_timeout=6,auto_reconnect=False,verbose=False)
   paced=PacedReader(factory,on_retry=lambda address,attempt,reason:print('Register '+str(address)+' attempt '+str(attempt)+'/3: '+reason,flush=True))
   stage='reading identity registers 0-9'; print(stage,flush=True)
   info=paced.read(0,10)
@@ -44,7 +45,7 @@ def main():
  p=argparse.ArgumentParser(description='Deye SG04LP3 read-only setup. No inverter writes.')
  p.add_argument('--host',required=True);p.add_argument('--serial',required=True,type=int);p.add_argument('--unit',type=int,default=1);p.add_argument('--expected-inverter-serial');p.add_argument('--apply',action='store_true')
  args=p.parse_args()
- print('DEYE BUILD: 2026.11.06-paced-retry-2 (paced reads and per-register retries)',flush=True)
+ print('DEYE BUILD: 2026.11.06-framed-transport-3 (paced reads and per-register retries)',flush=True)
  try:
   point=None; last_error=None
   for attempt in range(1,4):
