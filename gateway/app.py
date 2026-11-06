@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 from solarman_io import PacedReader
 from solarman_client import create_v5_client
+from config_storage import read_config
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -11,7 +12,7 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.06-framed-transport-3'
+APP_VERSION = '2026.11.06-utf8-config-4'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -26,7 +27,7 @@ def db():
 def config():
     with LOCK:
         p = DATA / 'config.json'
-        return DEFAULT | (json.loads(p.read_text()) if p.exists() else {})
+        return DEFAULT | (read_config(p) if p.exists() else {})
 
 def battery_capacity(batteries):
     return sum(float(b['nominal_kwh']) * float(b['usable_pct']) / 100 for b in batteries)
@@ -66,7 +67,7 @@ def save(c):
     validate(c)
     with LOCK:
         p = DATA / 'config.tmp'
-        p.write_text(json.dumps(c, ensure_ascii=False, indent=2)); p.chmod(0o600)
+        p.write_text(json.dumps(c, ensure_ascii=False, indent=2), encoding='utf-8'); p.chmod(0o600)
         p.replace(DATA / 'config.json')
 
 def stamp(s):

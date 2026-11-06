@@ -3,6 +3,7 @@ import argparse,json,os,sys,time
 from pathlib import Path
 from solarman_io import PacedReader
 from solarman_client import create_v5_client
+from config_storage import read_config
 
 def decode_serial(words):return b''.join(int(x).to_bytes(2,'big') for x in words).decode('ascii').strip('\0 ')
 def signed16(v):return v-65536 if v>=32768 else v
@@ -45,7 +46,7 @@ def main():
  p=argparse.ArgumentParser(description='Deye SG04LP3 read-only setup. No inverter writes.')
  p.add_argument('--host',required=True);p.add_argument('--serial',required=True,type=int);p.add_argument('--unit',type=int,default=1);p.add_argument('--expected-inverter-serial');p.add_argument('--apply',action='store_true')
  args=p.parse_args()
- print('DEYE BUILD: 2026.11.06-framed-transport-3 (paced reads and per-register retries)',flush=True)
+ print('DEYE BUILD: 2026.11.06-utf8-config-4 (paced reads and per-register retries)',flush=True)
  try:
   point=None; last_error=None
   for attempt in range(1,4):
@@ -60,9 +61,9 @@ def main():
   print('Compare these values with the inverter display. Direct solar consumption is not inferred.')
   if args.apply:
    root=Path(__file__).parent;data=Path(os.environ.get('DEYE_DATA',str(root/'data')));data.mkdir(parents=True,exist_ok=True)
-   file=data/'config.json';c=json.loads(file.read_text(encoding='utf-8-sig')) if file.exists() else {}
+   file=data/'config.json';c=read_config(file) if file.exists() else {}
    if file.exists(): (data/('config.backup-'+str(int(time.time()))+'.json')).write_bytes(file.read_bytes())
-   registers=json.loads((root/'profiles/deye_sg04lp3_readonly.json').read_text())
+   registers=json.loads((root/'profiles/deye_sg04lp3_readonly.json').read_text(encoding='utf-8'))
    c.update(mode='solarman_v5',host=args.host,port=8899,unit=args.unit,logger_serial=args.serial,registers=registers,poll_seconds=10,verified_profile=False,allow_writes=False)
    temp=data/'config.pending';temp.write_text(json.dumps(c,ensure_ascii=False,indent=2),encoding='utf-8');temp.replace(file)
    print('Local read-only profile saved. Inverter settings unchanged. Writes remain DISABLED.')

@@ -194,3 +194,22 @@ class PacedReadTests(NoSleepTestCase):
   with patch.object(solarman_io.time,'monotonic',return_value=10),patch.object(solarman_io.time,'sleep') as sleep:
    reader.read(588)
   sleep.assert_called_once_with(.5);reader.close()
+
+class ConfigEncodingTests(NoSleepTestCase):
+ def test_reads_utf8_and_bom_and_cp1251(self):
+  from config_storage import read_config
+  value={'address':'Будинок, Київ','group':'2.1','allow_writes':False}
+  path=Path(tempfile.mkdtemp())/'config.json'
+  for encoding in ('utf-8','utf-8-sig','cp1251'):
+   path.write_bytes(json.dumps(value,ensure_ascii=False).encode(encoding))
+   self.assertEqual(read_config(path),value)
+ def test_save_migrates_without_losing_settings(self):
+  path=app.DATA/'config.json';c=app.DEFAULT|{'address':'Будинок, Київ','group':'2.1','allow_writes':False}
+  path.write_bytes(json.dumps(c,ensure_ascii=False).encode('cp1251'))
+  loaded=app.config();self.assertEqual(loaded['address'],c['address']);app.save(loaded)
+  self.assertEqual(json.loads(path.read_bytes().decode('utf-8'))['address'],c['address']);self.assertFalse(app.config()['allow_writes'])
+ def test_invalid_json_is_not_overwritten(self):
+  from config_storage import read_config
+  path=Path(tempfile.mkdtemp())/'config.json';raw=b'{broken JSON';path.write_bytes(raw)
+  with self.assertRaises(json.JSONDecodeError):read_config(path)
+  self.assertEqual(path.read_bytes(),raw)
