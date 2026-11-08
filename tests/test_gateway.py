@@ -117,7 +117,9 @@ class CompositeProfileTests(NoSleepTestCase):
   with patch.object(m,'request',side_effect=[1200,600]):self.assertEqual(m.read({'address':672,'sum_addresses':[673]}),1800)
   with patch.object(m,'request',return_value=5):self.assertEqual(m.read({'address':552,'bit':2}),1)
  def test_composite_write_rejected(self):
-  with self.assertRaises(ValueError):app.validate(app.DEFAULT|{'registers':{'x':{'address':1,'bit':2,'writable':True,'min':0,'max':1}}})
+  for extra in ({'address_high':2},{'sum_addresses':[2]},{'clip':'positive'},{'offset':1000}):
+   with self.assertRaises(ValueError):app.validate(app.DEFAULT|{'registers':{'x':{'address':1,'writable':True,'min':0,'max':1}|extra}})
+  app.validate(app.DEFAULT|{'registers':{'x':{'address':1,'bit':2,'writable':True,'min':0,'max':1}}})
  def test_serial_matches_user_photo(self):
   spec=importlib.util.spec_from_file_location('configure',Path(__file__).parents[1]/'gateway/configure_deye.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
   self.assertEqual(m.decode_serial([12851,12593,13104,12848,14391]),'2311302087')
@@ -278,12 +280,14 @@ class OptimisedPollingTests(NoSleepTestCase):
  def test_settings_have_safe_limits(self):
   c=self.full();app.validate(c)
   for name,r in c['registers'].items():
-   if r.get('writable'):
+   if r.get('writable') and r.get('kind')!='clock':
     self.assertIn('label',r);self.assertLessEqual(r['max'],12000)
-  with self.assertRaises(ValueError):app.check_value('prog1_time',c['registers']['prog1_time'],1275,c)
+    if r.get('unit')=='А':self.assertLessEqual(r['max'],240)
+  with self.assertRaises(ValueError):app.check_value('program_1_time',c['registers']['program_1_time'],1275,c)
   with self.assertRaises(ValueError):app.check_value('work_mode',c['registers']['work_mode'],3,c)
   with self.assertRaises(ValueError):app.check_value('time_of_use',c['registers']['time_of_use'],7,c)
-  self.assertEqual(app.check_value('prog1_time',c['registers']['prog1_time'],2230,c),2230)
+  self.assertEqual(app.check_value('program_1_time',c['registers']['program_1_time'],2230,c),2230)
+  self.assertGreaterEqual(sum(1 for r in c['registers'].values() if r.get('writable')),95)
  def test_write_uses_same_connection_and_readback(self):
   values={142:0}
   from unittest.mock import MagicMock
@@ -339,3 +343,51 @@ class RateLimitTests(NoSleepTestCase):
    h=handler()
    with patch.object(h,'send') as send:h.auth();codes.append(send.call_args.args[0])
   self.assertEqual(codes[:10],[401]*10);self.assertEqual(codes[10],429);app.FAILURES.clear()
+
+
+class AllSettingsTests(NoSleepTestCase):
+ def setup_logger(self,values):
+  from unittest.mock import MagicMock
+  import types,sys
+  client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[values.get(i,0) for i in range(a,a+n)]
+  def write(a,v):values[a]=v;return v
+  def write_many(a,vs):
+   for i,v in enumerate(vs):values[a+i]=v
+   return len(vs)
+  client.write_holding_register.side_effect=write;client.write_multiple_holding_registers.side_effect=write_many
+  profile=json.loads((Path(__file__).parents[1]/'gateway/profiles/deye_sg04lp3.json').read_text())
+  app.save(app.DEFAULT|{'mode':'solarman_v5','logger_serial':123,'registers':profile,'verified_profile':True,'allow_writes':True})
+  self.patches=[patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))})]
+  for x in self.patches:x.start();self.addCleanup(x.stop)
+  self.addCleanup(lambda:app.save(dict(app.DEFAULT)))
+  return client
+ def test_bit_switch_changes_only_its_bit(self):
+  values={178:0b1010001}
+  client=self.setup_logger(values)
+  self.assertEqual(app.write_setting('grid_peak_shaving',1,'test'),1)
+  self.assertEqual(values[178],0b1010001|0b10000)
+  self.assertEqual(app.write_setting('generator_peak_shaving',0,'test'),0)
+  self.assertEqual(values[178],0b1010001|0b10000)
+ def test_danger_requires_panel_confirmation(self):
+  values={185:2530}
+  self.setup_logger(values)
+  with self.assertRaisesRegex(ValueError,'Небезпечний'):app.write_setting('grid_voltage_protection_high',260,'test')
+  self.assertEqual(app.write_setting('grid_voltage_protection_high',260,'test',danger_ok=True),260);self.assertEqual(values[185],2600)
+  msg={'from':{'id':5},'chat':{'id':5,'type':'private'},'text':'/set grid_voltage_protection_high 255'}
+  c=app.config();c['telegram_users']=[5];app.save(c)
+  with self.assertRaisesRegex(ValueError,'лише в панелі'):app.handle_bot_message(msg,{})
+ def test_scaled_voltage_write(self):
+  values={102:200,99:5600}
+  self.setup_logger(values)
+  self.assertAlmostEqual(app.write_setting('battery_equalization',56.4,'test',danger_ok=True),56.4);self.assertEqual(values[99],5640)
+  with self.assertRaises(ValueError):app.write_setting('battery_equalization',70,'test',danger_ok=True)
+ def test_clock_sync_and_read(self):
+  values={}
+  self.setup_logger(values)
+  stamp=app.sync_clock('test')
+  w=[values[62],values[63],values[64]];self.assertEqual(2000+(w[0]>>8),int(stamp[:4]))
+  self.assertEqual(app.read_settings()['inverter_clock'][:16],stamp[:16])
+ def test_settings_read_in_few_requests(self):
+  client=self.setup_logger({142:1,148:2230})
+  v=app.read_settings();self.assertEqual(v['work_mode'],1);self.assertEqual(v['program_1_time'],2230)
+  self.assertLess(client.read_holding_registers.call_count,20)

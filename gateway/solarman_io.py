@@ -79,3 +79,10 @@ class PacedReader:
         finally:self.finished=time.monotonic()
         if actual!=value:raise OSError('Запис Solarman не підтверджено')
         return actual
+    def write_many(self,address,values):
+        """FC16 write of consecutive registers (inverter clock). Never retried automatically."""
+        self._pace()
+        try:self.connection().write_multiple_holding_registers(address,list(values))
+        except Exception:
+            self.close();raise
+        finally:self.finished=time.monotonic()
