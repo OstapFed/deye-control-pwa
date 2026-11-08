@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.08-settings-bg-3'
+APP_VERSION = '2026.11.08-fc16-write-4'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -214,6 +214,14 @@ class Modbus:
     def read(self, r):
         fc = int(r.get('function', 3))
         return decode(r, lambda address: self.request(fc, address, 1))
+    def write_many(self, address, values):
+        payload = b''.join(struct.pack('>H', v) for v in values)
+        tid = secrets.randbelow(65536); unit = int(self.c['unit'])
+        pdu = struct.pack('>BHHB', 16, address, len(values), len(payload)) + payload
+        with socket.create_connection((self.c['host'], int(self.c['port'])), timeout=4) as s:
+            s.settimeout(4); s.sendall(struct.pack('>HHHB', tid, 0, len(pdu)+1, unit) + pdu)
+            reply = s.recv(260)
+            if len(reply) < 12 or reply[7] != 16: raise OSError('Запис регістрів не підтверджено (Modbus exception)')
 
 class SolarmanV5(Modbus):
     """One shared, paced logger connection per device; kept open between polls."""
@@ -235,6 +243,14 @@ class SolarmanV5(Modbus):
         serial=int(self.c.get('logger_serial',0))
         if not 0<serial<=0xffffffff: raise ValueError('Вкажіть серійний номер логера Solarman (не інвертора)')
         return create_v5_client(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=4,auto_reconnect=False,verbose=False)
+    def write_many(self, address, values):
+        with self._device_lock:
+            self._cache.clear()
+            reader=self._reader()
+            try: reader.write_many(address, values)
+            finally:
+                if not self._batch: self.close()
+
     def prefetch(self, registers):
         if not self._batch: return
         grouped=defaultdict(set)
@@ -249,25 +265,18 @@ class SolarmanV5(Modbus):
             try:
                 if function in (3,4): return reader.read(address,1,function)[0]
                 if function==6:
+                    # Deye accepts holding-register writes only as FC16 (write multiple registers);
+                    # FC06 is answered with Modbus exception 05 (Acknowledge). Readback verifies the value.
                     self._cache.clear()
-                    return reader.write(address,value)
+                    reader.write_many(address,[value])
+                    return value
                 raise ValueError('Непідтримувана функція Solarman')
             finally:
                 if not self._batch: self.close()
 
 def write_registers(m, address, values):
-    """Consecutive-register write (FC16) on either transport."""
-    if isinstance(m, SolarmanV5):
-        with m._device_lock:
-            m._cache.clear(); m._reader().write_many(address, values)
-        return
-    payload = b''.join(struct.pack('>H', v) for v in values)
-    tid = secrets.randbelow(65536); unit = int(m.c['unit'])
-    pdu = struct.pack('>BHHB', 16, address, len(values), len(payload)) + payload
-    with socket.create_connection((m.c['host'], int(m.c['port'])), timeout=4) as s:
-        s.settimeout(4); s.sendall(struct.pack('>HHHB', tid, 0, len(pdu)+1, unit) + pdu)
-        reply = s.recv(260)
-        if len(reply) < 12 or reply[7] != 16: raise OSError('Запис кількох регістрів не підтверджено')
+    """Consecutive-register write (FC16) on either transport. Deye rejects FC06 writes."""
+    m.write_many(address, values)
 
 def inverter(c):
     return SolarmanV5(c) if c['mode']=='solarman_v5' else Modbus(c)
@@ -423,7 +432,7 @@ def write_setting(name, value, actor, danger_ok=False):
                 if raw not in (0, 1): raise ValueError('Бітовий параметр приймає 0 або 1')
                 word = m.request(3, int(r['address']), 1); bit = int(r['bit'])
                 raw = (word & ~(1 << bit)) | (raw << bit)
-            m.request(6, int(r['address']), raw & 65535)
+            write_registers(m, int(r['address']), [raw & 65535])
             actual = m.read(r)
             with database() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'READBACK ' + str(actual)))
         log('write', name, old, '->', actual, 'by', actor)
