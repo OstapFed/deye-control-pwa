@@ -35,13 +35,13 @@ class GatewayTests(NoSleepTestCase):
   with self.assertRaises(ValueError):app.write_setting('target_soc',80,'test')
  def test_verified_write_and_readback(self):
   c=app.DEFAULT|{'mode':'modbus_tcp','verified_profile':True,'allow_writes':True,'registers':{'target_soc':{'address':100,'scale':1,'min':30,'max':100,'writable':True}}};app.save(c)
-  with patch.object(app.Modbus,'read',side_effect=[60,80]),patch.object(app.Modbus,'request') as request:
-   self.assertEqual(app.write_setting('target_soc',80,'test'),80);request.assert_called_once_with(6,100,80)
+  with patch.object(app.Modbus,'read',side_effect=[60,80]),patch.object(app.Modbus,'write_many') as write:
+   self.assertEqual(app.write_setting('target_soc',80,'test'),80);write.assert_called_once_with(100,[80])
   with app.db() as d:self.assertEqual(d.execute('SELECT COUNT(*) FROM audit').fetchone()[0],2)
   with self.assertRaises(ValueError):app.write_setting('target_soc',101,'test')
  def test_readback_mismatch_fails(self):
   c=app.DEFAULT|{'mode':'modbus_tcp','verified_profile':True,'allow_writes':True,'registers':{'soc_limit':{'address':100,'min':0,'max':100,'writable':True}}};app.save(c)
-  with patch.object(app.Modbus,'read',side_effect=[20,20]),patch.object(app.Modbus,'request'):
+  with patch.object(app.Modbus,'read',side_effect=[20,20]),patch.object(app.Modbus,'write_many'):
    with self.assertRaisesRegex(ValueError,'читання'):app.write_setting('soc_limit',30,'test')
 if __name__=='__main__':unittest.main()
 
@@ -105,8 +105,8 @@ class SolarmanTests(NoSleepTestCase):
   client=MagicMock();client.write_holding_register.return_value=10
   c=app.DEFAULT|{'mode':'solarman_v5','logger_serial':123}
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
-   with self.assertRaises(OSError):app.inverter(c).request(6,100,20)
-  client.write_holding_register.assert_called_once_with(100,20)
+   self.assertEqual(app.inverter(c).request(6,100,20),20)
+  client.write_multiple_holding_registers.assert_called_once_with(100,[20]);client.write_holding_register.assert_not_called()
 
 class CompositeProfileTests(NoSleepTestCase):
  def test_signed_grid_words_and_direction(self):
@@ -293,14 +293,15 @@ class OptimisedPollingTests(NoSleepTestCase):
   values={142:0}
   from unittest.mock import MagicMock
   client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[values.get(i,0) for i in range(a,a+n)]
-  def write(a,v):values[a]=v;return v
-  client.write_holding_register.side_effect=write
+  def write(a,vs):values[a]=vs[0];return 1
+  client.write_multiple_holding_registers.side_effect=write
+  client.write_holding_register.side_effect=OSError('V5 Modbus EXCEPTION: AcknowledgeError')
   c=self.full()|{'verified_profile':True,'allow_writes':True};app.save(c)
   import types,sys
   factory=MagicMock(return_value=client)
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
    self.assertEqual(app.write_setting('work_mode',1,'test'),1)
-  factory.assert_called_once();client.write_holding_register.assert_called_once_with(142,1)
+  factory.assert_called_once();client.write_multiple_holding_registers.assert_called_once_with(142,[1]);client.write_holding_register.assert_not_called()
   app.save(dict(app.DEFAULT))
 
 class ForecastAndTelegramTests(NoSleepTestCase):
