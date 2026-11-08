@@ -22,7 +22,7 @@ class PacedReader:
         self.factory=factory;self.delay=delay;self.retries=retries;self.on_retry=on_retry
         self.client=None;self.finished=0
         # Block reads are tried first; a logger that rejects them is read register by register.
-        self.blocks_disabled_until=0.0
+        self.blocks_disabled_until=0.0;self.block_failures=0
     def connection(self):
         if self.client is None:self.client=self.factory()
         return self.client
@@ -49,7 +49,7 @@ class PacedReader:
                 last=error;self.close()
                 description=type(error).__name__+': '+(str(error) or repr(error))
                 if self.on_retry:self.on_retry(address,attempt,description)
-                if attempt<retries:time.sleep(1.5*attempt)
+                if attempt<retries:time.sleep(.5*attempt)
             finally:self.finished=time.monotonic()
         raise OSError('Register '+str(address)+' failed after '+str(retries)+' attempts: '+type(last).__name__+': '+(str(last) or repr(last))) from last
     def read_many(self,addresses,function=3,max_span=32,max_gap=12,block_cooldown=900):
@@ -59,12 +59,16 @@ class PacedReader:
         for start,count in plan_blocks(addresses,max_span,max_gap):
             if count>1 and use_blocks:
                 try:
-                    # One attempt only: a failed block is cheaper to replace with single reads.
-                    values=self.read(start,count,function,retries=1)
+                    # A logger that drops random requests is not helped by single reads (16 chances to drop
+                    # instead of 1), so a block gets a second try; single mode only after 3 failed blocks in a row.
+                    values=self.read(start,count,function,retries=2)
                     result.update({start+i:v for i,v in enumerate(values)})
+                    self.block_failures=0
                     continue
                 except OSError:
-                    use_blocks=False;self.blocks_disabled_until=time.monotonic()+block_cooldown
+                    self.block_failures+=1
+                    if self.block_failures>=3:
+                        use_blocks=False;self.blocks_disabled_until=time.monotonic()+block_cooldown;self.block_failures=0
             wanted=[a for a in addresses if start<=a<start+count]
             for address in sorted(set(wanted)):
                 result[address]=self.read(address,1,function)[0]
