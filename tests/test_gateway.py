@@ -1,4 +1,5 @@
 import importlib.util,os,tempfile,unittest,json,time,sys
+from datetime import datetime,timezone
 from pathlib import Path
 from unittest.mock import patch
 os.environ['DEYE_DATA']=tempfile.mkdtemp()
@@ -8,6 +9,7 @@ spec=importlib.util.spec_from_file_location('gateway',Path(__file__).parents[1]/
 class NoSleepTestCase(unittest.TestCase):
  def setUp(self):
   sleeper=patch('solarman_io.time.sleep');sleeper.start();self.addCleanup(sleeper.stop)
+  app.reset_sessions();self.addCleanup(app.reset_sessions)
 
 class GatewayTests(NoSleepTestCase):
  def setUp(self):
@@ -78,7 +80,16 @@ class SolarmanTests(NoSleepTestCase):
   c=app.DEFAULT|{'mode':'solarman_v5','host':'192.168.1.10','port':8899,'logger_serial':1234567890}
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
    self.assertEqual(app.inverter(c).read({'address':100,'scale':.1}),72)
+   self.assertEqual(app.inverter(c).read({'address':100,'scale':.1}),72)
   factory.assert_called_once_with('192.168.1.10',1234567890,port=8899,mb_slave_id=1,socket_timeout=5,auto_reconnect=False,verbose=False)
+  client.disconnect.assert_not_called()
+ def test_non_persistent_mode_disconnects(self):
+  from unittest.mock import MagicMock
+  import types,sys
+  client=MagicMock();client.read_holding_registers.return_value=[720]
+  c=app.DEFAULT|{'mode':'solarman_v5','logger_serial':123,'persistent_connection':False}
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
+   app.inverter(c).read({'address':100})
   client.disconnect.assert_called_once()
  def test_disconnect_on_error(self):
   from unittest.mock import MagicMock
@@ -87,7 +98,7 @@ class SolarmanTests(NoSleepTestCase):
   c=app.DEFAULT|{'mode':'solarman_v5','logger_serial':123}
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
    with self.assertRaises(OSError):app.inverter(c).read({'address':100,'function':4})
-  client.disconnect.assert_called_once()
+  self.assertEqual(client.disconnect.call_count,3)
  def test_write_echo_required(self):
   from unittest.mock import MagicMock
   import types,sys
@@ -95,7 +106,7 @@ class SolarmanTests(NoSleepTestCase):
   c=app.DEFAULT|{'mode':'solarman_v5','logger_serial':123}
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}):
    with self.assertRaises(OSError):app.inverter(c).request(6,100,20)
-  client.disconnect.assert_called_once()
+  client.write_holding_register.assert_called_once_with(100,20)
 
 class CompositeProfileTests(NoSleepTestCase):
  def test_signed_grid_words_and_direction(self):
@@ -147,7 +158,12 @@ class BatchedSolarmanTests(NoSleepTestCase):
   factory=MagicMock(return_value=client)
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):p=app.read_sample(self.profile())
   self.assertEqual(p['soc'],80);self.assertEqual(p['load_w'],665);self.assertEqual(p['grid_import_w'],958);self.assertEqual(p['grid_export_w'],0);self.assertEqual(p['battery_w'],171)
-  factory.assert_called_once();client.disconnect.assert_called_once();self.assertEqual(client.read_holding_registers.call_count,9);self.assertTrue(all(call.args[1]==1 for call in client.read_holding_registers.call_args_list))
+  calls=client.read_holding_registers.call_args_list
+  # One block attempt fails, then the logger is read register by register (9 words).
+  self.assertEqual(sum(1 for x in calls if x.args[1]>1),1);self.assertEqual(sum(1 for x in calls if x.args[1]==1),9)
+  client.read_holding_registers.reset_mock()
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):app.read_sample(self.profile())
+  self.assertTrue(all(x.args[1]==1 for x in client.read_holding_registers.call_args_list),'blocks stay disabled after a failure')
  def test_failure_closes_session_and_next_cycle_reconnects(self):
   from unittest.mock import MagicMock
   import types,sys
@@ -157,7 +173,7 @@ class BatchedSolarmanTests(NoSleepTestCase):
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
    with self.assertRaisesRegex(OSError,'Register 552 failed after 3 attempts'):app.read_sample(self.profile())
    self.assertEqual(app.read_sample(self.profile())['soc'],50)
-  self.assertEqual(bad.disconnect.call_count,3);good.disconnect.assert_called_once()
+  self.assertEqual(bad.disconnect.call_count,3);good.disconnect.assert_not_called()
 
 class SetupRecoveryTests(NoSleepTestCase):
  def module(self):
@@ -228,3 +244,98 @@ class LocalSessionTests(NoSleepTestCase):
   h=self.handler('127.0.0.1','deye_local_session=wrong')
   with patch.object(h,'send') as send:self.assertFalse(h.auth())
   self.assertEqual(send.call_args.args[0],401)
+
+
+class OptimisedPollingTests(NoSleepTestCase):
+ def full(self):
+  profile=json.loads((Path(__file__).parents[1]/'gateway/profiles/deye_sg04lp3.json').read_text())
+  return app.DEFAULT|{'mode':'solarman_v5','logger_serial':123,'registers':profile}
+ def client(self,values):
+  from unittest.mock import MagicMock
+  client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[values.get(i,0) for i in range(a,a+n)];return client
+ def run_sample(self,client,c):
+  import types,sys
+  from unittest.mock import MagicMock
+  factory=MagicMock(return_value=client)
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):return app.read_sample(c),factory
+ def test_block_plan(self):
+  from solarman_io import plan_blocks
+  self.assertEqual(plan_blocks([552,588,590,625,653,659,672,673,690]),[(552,1),(588,3),(625,1),(653,21),(690,1)])
+  self.assertEqual(plan_blocks([552,588,590,625,653,659,672,673,690],max_span=16,max_gap=4),[(552,1),(588,3),(625,1),(653,1),(659,1),(672,2),(690,1)])
+  self.assertEqual(plan_blocks([1,2,3],max_span=2),[(1,2),(3,1)])
+ def test_full_profile_reads_in_blocks_and_caches_slow_counters(self):
+  values={588:80,672:500,673:300,653:665,552:4,625:958,690:0,590:65365,587:5310,586:1250,541:1420,529:123,526:88,520:20,521:5,514:30,515:41}
+  client=self.client(values);c=self.full()
+  p,factory=self.run_sample(client,c)
+  self.assertEqual(p['pv_w'],800);self.assertAlmostEqual(p['battery_temp_c'],25);self.assertAlmostEqual(p['inverter_temp_c'],42);self.assertAlmostEqual(p['today_pv_kwh'],12.3);self.assertAlmostEqual(p['battery_voltage_v'],53.1)
+  first=client.read_holding_registers.call_count
+  self.assertLess(first,10)
+  client.read_holding_registers.reset_mock();p2,_=self.run_sample(client,c)
+  self.assertAlmostEqual(p2['today_pv_kwh'],12.3)
+  read=[a for x in client.read_holding_registers.call_args_list for a in range(x.args[0],x.args[0]+x.args[1])]
+  self.assertNotIn(529,read,'daily counters are cached for 60 s');self.assertIn(588,read)
+  factory.assert_called_once()
+ def test_settings_have_safe_limits(self):
+  c=self.full();app.validate(c)
+  for name,r in c['registers'].items():
+   if r.get('writable'):
+    self.assertIn('label',r);self.assertLessEqual(r['max'],12000)
+  with self.assertRaises(ValueError):app.check_value('prog1_time',c['registers']['prog1_time'],1275,c)
+  with self.assertRaises(ValueError):app.check_value('work_mode',c['registers']['work_mode'],3,c)
+  with self.assertRaises(ValueError):app.check_value('time_of_use',c['registers']['time_of_use'],7,c)
+  self.assertEqual(app.check_value('prog1_time',c['registers']['prog1_time'],2230,c),2230)
+ def test_write_uses_same_connection_and_readback(self):
+  values={142:0}
+  from unittest.mock import MagicMock
+  client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[values.get(i,0) for i in range(a,a+n)]
+  def write(a,v):values[a]=v;return v
+  client.write_holding_register.side_effect=write
+  c=self.full()|{'verified_profile':True,'allow_writes':True};app.save(c)
+  import types,sys
+  factory=MagicMock(return_value=client)
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
+   self.assertEqual(app.write_setting('work_mode',1,'test'),1)
+  factory.assert_called_once();client.write_holding_register.assert_called_once_with(142,1)
+  app.save(dict(app.DEFAULT))
+
+class ForecastAndTelegramTests(NoSleepTestCase):
+ def setUp(self):
+  super().setUp();app.save(dict(app.DEFAULT))
+ def test_forecast_counts_only_outage_hours(self):
+  now=time.time();start=datetime.fromtimestamp(now+3600,timezone.utc).isoformat();end=datetime.fromtimestamp(now+3*3600,timezone.utc).isoformat()
+  app.save(app.DEFAULT|{'group':'1.1','outages':[{'group':'1.1','start':start,'end':end}],'mode':'modbus_tcp'})
+  with app.STATE_LOCK:app.SITE_STATES['default']=dict(online=True,demo=False,error=None,sample=dict(soc=80,load_w=1000,pv_w=0,grid_on=True,t=now,site_id='default'))
+  try:
+   f=app.status()['forecast'];self.assertAlmostEqual(f['discharge_hours'],2,places=1);self.assertIn('restore_at',f)
+  finally:app.SITE_STATES.clear()
+ def test_secret_token_hidden_and_not_writable_via_config(self):
+  app.save(app.DEFAULT|{'telegram_token':'123:abc'})
+  pub=app.public_config();self.assertNotIn('telegram_token',pub);self.assertTrue(pub['telegram_token_set'])
+ def test_pairing_flow_and_commands(self):
+  app.save(app.DEFAULT|{'telegram_token':'123:abc'})
+  with patch.object(app,'telegram_info',return_value={'username':'deye_bot'}):r=app.start_pairing()
+  self.assertEqual(r['link'],'https://t.me/deye_bot?start='+r['code'])
+  msg=lambda text,uid=42:{'from':{'id':uid},'chat':{'id':uid,'type':'private'},'text':text}
+  self.assertIn('42',app.handle_bot_message(msg('/start'),{}))
+  self.assertIsNone(app.handle_bot_message(msg('/status'),{}),'strangers get no data')
+  self.assertIn('Доступ надано',app.handle_bot_message(msg('/start '+r['code']),{}))
+  self.assertEqual(app.config()['telegram_users'],[42])
+  self.assertIn('недійсний',app.handle_bot_message(msg('/pair '+r['code'],7),{}),'codes are single-use')
+  self.assertIn('/status',app.handle_bot_message(msg('/help'),{}))
+  with self.assertRaises(ValueError):app.handle_bot_message(msg('/set work_mode 1'),{})
+ def test_notify_is_queued_not_blocking(self):
+  app.save(app.DEFAULT|{'telegram_token':'123:abc','telegram_users':[1]})
+  while not app.TG_OUTBOX.empty():app.TG_OUTBOX.get_nowait()
+  with patch.object(app,'tg',side_effect=AssertionError('must not call network inline')):app.notify('hello')
+  self.assertEqual(app.TG_OUTBOX.get_nowait(),'hello')
+
+class RateLimitTests(NoSleepTestCase):
+ def test_bruteforce_is_throttled(self):
+  app.FAILURES.clear()
+  def handler():
+   h=object.__new__(app.Handler);h.client_address=('192.168.1.77',1);h.headers={'Authorization':'Basic bad'};return h
+  codes=[]
+  for _ in range(11):
+   h=handler()
+   with patch.object(h,'send') as send:h.auth();codes.append(send.call_args.args[0])
+  self.assertEqual(codes[:10],[401]*10);self.assertEqual(codes[10],429);app.FAILURES.clear()
