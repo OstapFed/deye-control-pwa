@@ -1,0 +1,496 @@
+{
+ "soc": {
+  "address": 588,
+  "label": "Заряд батареї",
+  "unit": "%"
+ },
+ "pv_w": {
+  "address": 672,
+  "sum_addresses": [
+   673
+  ],
+  "label": "Генерація PV",
+  "unit": "Вт"
+ },
+ "load_w": {
+  "address": 653,
+  "address_high": 659,
+  "signed": true,
+  "label": "Навантаження",
+  "unit": "Вт"
+ },
+ "grid_on": {
+  "address": 552,
+  "bit": 2,
+  "label": "Мережа"
+ },
+ "grid_import_w": {
+  "address": 625,
+  "address_high": 690,
+  "signed": true,
+  "clip": "positive",
+  "label": "Імпорт",
+  "unit": "Вт"
+ },
+ "grid_export_w": {
+  "address": 625,
+  "address_high": 690,
+  "signed": true,
+  "clip": "negative",
+  "label": "Експорт",
+  "unit": "Вт"
+ },
+ "battery_w": {
+  "address": 590,
+  "signed": true,
+  "scale": -1,
+  "label": "Батарея (+заряд/−розряд)",
+  "unit": "Вт"
+ },
+ "battery_voltage_v": {
+  "address": 587,
+  "scale": 0.01,
+  "label": "Напруга батареї",
+  "unit": "В"
+ },
+ "battery_temp_c": {
+  "address": 586,
+  "offset": 1000,
+  "scale": 0.1,
+  "label": "Температура батареї",
+  "unit": "°C"
+ },
+ "inverter_temp_c": {
+  "address": 541,
+  "offset": 1000,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Температура інвертора",
+  "unit": "°C"
+ },
+ "today_pv_kwh": {
+  "address": 529,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Генерація сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_load_kwh": {
+  "address": 526,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Споживання сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_import_kwh": {
+  "address": 520,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Імпорт сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_export_kwh": {
+  "address": 521,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Експорт сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_battery_charge_kwh": {
+  "address": 514,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Заряд батареї сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_battery_discharge_kwh": {
+  "address": 515,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Розряд батареї сьогодні",
+  "unit": "кВт·год"
+ },
+ "work_mode": {
+  "address": 142,
+  "writable": true,
+  "min": 0,
+  "max": 2,
+  "label": "Режим роботи",
+  "unit": "",
+  "group": "Режим",
+  "options": {
+   "0": "Продаж надлишку (Export First)",
+   "1": "Нуль експорту на навантаження",
+   "2": "Нуль експорту на CT"
+  }
+ },
+ "solar_sell": {
+  "address": 145,
+  "writable": true,
+  "min": 0,
+  "max": 1,
+  "label": "Продаж сонячної енергії",
+  "unit": "",
+  "group": "Режим",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  }
+ },
+ "max_sell_power_w": {
+  "address": 143,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Макс. потужність продажу",
+  "unit": "Вт",
+  "group": "Режим"
+ },
+ "max_charge_current_a": {
+  "address": 108,
+  "writable": true,
+  "min": 0,
+  "max": 240,
+  "label": "Макс. струм заряду батареї",
+  "unit": "А",
+  "group": "Батарея"
+ },
+ "max_discharge_current_a": {
+  "address": 109,
+  "writable": true,
+  "min": 0,
+  "max": 240,
+  "label": "Макс. струм розряду батареї",
+  "unit": "А",
+  "group": "Батарея"
+ },
+ "battery_shutdown_soc": {
+  "address": 115,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "SOC вимкнення (Shutdown)",
+  "unit": "%",
+  "group": "Батарея"
+ },
+ "battery_restart_soc": {
+  "address": 116,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "SOC перезапуску (Restart)",
+  "unit": "%",
+  "group": "Батарея"
+ },
+ "battery_low_soc": {
+  "address": 117,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Низький SOC (Low Batt)",
+  "unit": "%",
+  "group": "Батарея"
+ },
+ "grid_charge_enabled": {
+  "address": 130,
+  "writable": true,
+  "min": 0,
+  "max": 1,
+  "label": "Заряд від мережі",
+  "unit": "",
+  "group": "Заряд від мережі",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  }
+ },
+ "grid_charge_current_a": {
+  "address": 128,
+  "writable": true,
+  "min": 0,
+  "max": 240,
+  "label": "Струм заряду від мережі",
+  "unit": "А",
+  "group": "Заряд від мережі"
+ },
+ "grid_charge_start_soc": {
+  "address": 127,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Почати заряд від мережі при SOC",
+  "unit": "%",
+  "group": "Заряд від мережі"
+ },
+ "time_of_use": {
+  "address": 146,
+  "writable": true,
+  "min": 0,
+  "max": 255,
+  "label": "Розклад (Time of Use)",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "255": "Увімкнено щодня"
+  }
+ },
+ "prog1_time": {
+  "address": 148,
+  "writable": true,
+  "min": 0,
+  "max": 2359,
+  "label": "Програма 1: початок",
+  "unit": "год:хв",
+  "group": "Розклад",
+  "format": "hhmm"
+ },
+ "prog1_power_w": {
+  "address": 154,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Програма 1: потужність",
+  "unit": "Вт",
+  "group": "Розклад"
+ },
+ "prog1_soc": {
+  "address": 166,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Програма 1: цільовий SOC",
+  "unit": "%",
+  "group": "Розклад"
+ },
+ "prog1_charge": {
+  "address": 172,
+  "writable": true,
+  "min": 0,
+  "max": 3,
+  "label": "Програма 1: заряд від",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  }
+ },
+ "prog2_time": {
+  "address": 149,
+  "writable": true,
+  "min": 0,
+  "max": 2359,
+  "label": "Програма 2: початок",
+  "unit": "год:хв",
+  "group": "Розклад",
+  "format": "hhmm"
+ },
+ "prog2_power_w": {
+  "address": 155,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Програма 2: потужність",
+  "unit": "Вт",
+  "group": "Розклад"
+ },
+ "prog2_soc": {
+  "address": 167,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Програма 2: цільовий SOC",
+  "unit": "%",
+  "group": "Розклад"
+ },
+ "prog2_charge": {
+  "address": 173,
+  "writable": true,
+  "min": 0,
+  "max": 3,
+  "label": "Програма 2: заряд від",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  }
+ },
+ "prog3_time": {
+  "address": 150,
+  "writable": true,
+  "min": 0,
+  "max": 2359,
+  "label": "Програма 3: початок",
+  "unit": "год:хв",
+  "group": "Розклад",
+  "format": "hhmm"
+ },
+ "prog3_power_w": {
+  "address": 156,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Програма 3: потужність",
+  "unit": "Вт",
+  "group": "Розклад"
+ },
+ "prog3_soc": {
+  "address": 168,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Програма 3: цільовий SOC",
+  "unit": "%",
+  "group": "Розклад"
+ },
+ "prog3_charge": {
+  "address": 174,
+  "writable": true,
+  "min": 0,
+  "max": 3,
+  "label": "Програма 3: заряд від",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  }
+ },
+ "prog4_time": {
+  "address": 151,
+  "writable": true,
+  "min": 0,
+  "max": 2359,
+  "label": "Програма 4: початок",
+  "unit": "год:хв",
+  "group": "Розклад",
+  "format": "hhmm"
+ },
+ "prog4_power_w": {
+  "address": 157,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Програма 4: потужність",
+  "unit": "Вт",
+  "group": "Розклад"
+ },
+ "prog4_soc": {
+  "address": 169,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Програма 4: цільовий SOC",
+  "unit": "%",
+  "group": "Розклад"
+ },
+ "prog4_charge": {
+  "address": 175,
+  "writable": true,
+  "min": 0,
+  "max": 3,
+  "label": "Програма 4: заряд від",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  }
+ },
+ "prog5_time": {
+  "address": 152,
+  "writable": true,
+  "min": 0,
+  "max": 2359,
+  "label": "Програма 5: початок",
+  "unit": "год:хв",
+  "group": "Розклад",
+  "format": "hhmm"
+ },
+ "prog5_power_w": {
+  "address": 158,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Програма 5: потужність",
+  "unit": "Вт",
+  "group": "Розклад"
+ },
+ "prog5_soc": {
+  "address": 170,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Програма 5: цільовий SOC",
+  "unit": "%",
+  "group": "Розклад"
+ },
+ "prog5_charge": {
+  "address": 176,
+  "writable": true,
+  "min": 0,
+  "max": 3,
+  "label": "Програма 5: заряд від",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  }
+ },
+ "prog6_time": {
+  "address": 153,
+  "writable": true,
+  "min": 0,
+  "max": 2359,
+  "label": "Програма 6: початок",
+  "unit": "год:хв",
+  "group": "Розклад",
+  "format": "hhmm"
+ },
+ "prog6_power_w": {
+  "address": 159,
+  "writable": true,
+  "min": 0,
+  "max": 12000,
+  "label": "Програма 6: потужність",
+  "unit": "Вт",
+  "group": "Розклад"
+ },
+ "prog6_soc": {
+  "address": 171,
+  "writable": true,
+  "min": 0,
+  "max": 100,
+  "label": "Програма 6: цільовий SOC",
+  "unit": "%",
+  "group": "Розклад"
+ },
+ "prog6_charge": {
+  "address": 177,
+  "writable": true,
+  "min": 0,
+  "max": 3,
+  "label": "Програма 6: заряд від",
+  "unit": "",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  }
+ }
+}

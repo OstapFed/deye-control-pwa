@@ -86,23 +86,6 @@ try {
         # Windows PowerShell 5 writes a UTF-8 BOM; Python expects UTF-8 without BOM.
         [IO.File]::WriteAllText($deyeConfig, ($profile | ConvertTo-Json -Depth 8), (New-Object Text.UTF8Encoding($false)))
     }
-    $launcher = @'
-$ErrorActionPreference = 'Stop'
-$deyeRoot = Join-Path $env:LOCALAPPDATA 'DeyeControl'
-$env:DEYE_DATA = Join-Path $deyeRoot 'data'
-$secret = Read-Host 'Set the local DEYE server password (at least 12 characters)' -AsSecureString
-$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
-try { $env:DEYE_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
-finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
-if ($env:DEYE_PASSWORD.Length -lt 12) { throw 'Password must have at least 12 characters.' }
-Write-Host 'Local panel: http://127.0.0.1:8080'
-Write-Host 'Register mapping still needs verification before live measurements or writes.'
-Start-Process 'http://127.0.0.1:8080'
-try { & (Join-Path $deyeRoot '.venv\Scripts\python.exe') (Join-Path $deyeRoot 'source\gateway\app.py') }
-finally { Remove-Item Env:DEYE_PASSWORD -ErrorAction SilentlyContinue }
-'@
-    [IO.File]::WriteAllText((Join-Path $deyeRoot 'Start-DEYE.ps1'),$launcher,(New-Object Text.UTF8Encoding($false)))
-
     Write-Host '[4/4] Testing local Solarman V5 reads. No inverter settings will be changed...'
     $report = Join-Path $deyeRoot 'connection-check.txt'
     & $deyeRuntime (Join-Path $deyeSource 'gateway\probe_solarman.py') --host $LoggerHost --serial $LoggerSerial --unit $UnitId 2>&1 | Tee-Object -FilePath $report
@@ -110,8 +93,7 @@ finally { Remove-Item Env:DEYE_PASSWORD -ErrorAction SilentlyContinue }
     Write-Host "Installed in: $deyeRoot"
     Write-Host "Read-only diagnostic report: $report"
     if ($probeExit -eq 0) {
-        Write-Host 'V5 read succeeded. Send the register output so the Deye map can be verified.' -ForegroundColor Green
-        Write-Host 'The inverter register map and real-time dashboard are not configured yet.'
+        Write-Host 'V5 read succeeded. Next step: run connect-windows.ps1 to start the panel and autostart.' -ForegroundColor Green
     } else {
         Write-Warning 'V5 reading failed. Send the diagnostic error; no settings were changed.'
     }
