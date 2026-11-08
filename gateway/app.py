@@ -14,12 +14,17 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.08-complete-1'
+APP_VERSION = '2026.11.08-all-settings-2'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
 DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], telegram_token='', daily_report_hour=20, warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[], logger_serial=0, persistent_connection=True)
 PROFILES = ROOT / 'profiles'
+
+def log(*parts):
+    """One line to stdout; the Windows service redirects it to data/server.log."""
+    try: print(time.strftime('%Y-%m-%d %H:%M:%S'), *parts, flush=True)
+    except Exception: pass
 TELEMETRY_REQUIRED = ('soc', 'pv_w', 'load_w', 'grid_on')
 SECRET_FIELDS = ('telegram_token',)
 
@@ -77,12 +82,14 @@ def validate_register(name, r):
     addresses=[r['address'],*r.get('sum_addresses',[])] + ([r['address_high']] if 'address_high' in r else [])
     if not all(0 <= int(x) <= 65535 for x in addresses): raise ValueError('Адреса регістра: ' + name)
     if 'bit' in r and not 0<=int(r['bit'])<=15: raise ValueError('Номер біта')
-    if r.get('writable') and any(k in r for k in ('bit','clip','sum_addresses','address_high','offset')): raise ValueError('Складені регістри доступні лише для читання')
+    if r.get('writable') and any(k in r for k in ('clip','sum_addresses','address_high','offset')): raise ValueError('Складені регістри доступні лише для читання')
+    if r.get('kind') not in (None, 'clock'): raise ValueError('Тип регістра: ' + name)
+    if r.get('risk') not in (None, 'danger'): raise ValueError('Рівень ризику: ' + name)
     if not math.isfinite(float(r.get('scale', 1))) or float(r.get('scale', 1)) == 0: raise ValueError('Масштаб регістра')
     if not math.isfinite(float(r.get('offset', 0))): raise ValueError('Зсув регістра')
     if not 0 <= float(r.get('every', 0)) <= 3600: raise ValueError('Інтервал читання регістра')
     if int(r.get('function', 3)) not in (3, 4): raise ValueError('Функція читання')
-    if r.get('writable'):
+    if r.get('writable') and r.get('kind') != 'clock':
         if not math.isfinite(float(r['min'])) or not math.isfinite(float(r['max'])) or float(r['min']) > float(r['max']): raise ValueError('Межі запису')
         if 'options' in r and (not isinstance(r['options'], dict) or not r['options'] or not all(math.isfinite(float(k)) for k in r['options'])): raise ValueError('Варіанти значень: ' + name)
         if r.get('format') not in (None, 'hhmm'): raise ValueError('Формат регістра')
@@ -214,7 +221,7 @@ class SolarmanV5(Modbus):
         key = device_key(self.c)
         reader = SESSIONS.get(key)
         if reader is None:
-            reader = SESSIONS[key] = PacedReader(self._connect)
+            reader = SESSIONS[key] = PacedReader(self._connect, on_retry=lambda address, attempt, reason: log('logger', self.c.get('host'), 'register', address, 'attempt', attempt, reason))
         return reader
     def close(self):
         if not self.c.get('persistent_connection', True):
@@ -247,6 +254,20 @@ class SolarmanV5(Modbus):
                 raise ValueError('Непідтримувана функція Solarman')
             finally:
                 if not self._batch: self.close()
+
+def write_registers(m, address, values):
+    """Consecutive-register write (FC16) on either transport."""
+    if isinstance(m, SolarmanV5):
+        with m._device_lock:
+            m._cache.clear(); m._reader().write_many(address, values)
+        return
+    payload = b''.join(struct.pack('>H', v) for v in values)
+    tid = secrets.randbelow(65536); unit = int(m.c['unit'])
+    pdu = struct.pack('>BHHB', 16, address, len(values), len(payload)) + payload
+    with socket.create_connection((m.c['host'], int(m.c['port'])), timeout=4) as s:
+        s.settimeout(4); s.sendall(struct.pack('>HHHB', tid, 0, len(pdu)+1, unit) + pdu)
+        reply = s.recv(260)
+        if len(reply) < 12 or reply[7] != 16: raise OSError('Запис кількох регістрів не підтверджено')
 
 def inverter(c):
     return SolarmanV5(c) if c['mode']=='solarman_v5' else Modbus(c)
@@ -289,7 +310,7 @@ def setting_definitions(c=None):
     c = config() if c is None else c
     out = {}
     for name, r in c['registers'].items():
-        if r.get('writable'): out[name] = {k: r[k] for k in ('min','max','scale','label','unit','options','format','group') if k in r}
+        if r.get('writable'): out[name] = {k: r[k] for k in ('min','max','scale','step','label','unit','options','format','group','risk','kind') if k in r}
     return out
 
 def read_settings():
@@ -298,27 +319,57 @@ def read_settings():
     if c['mode'] not in ('modbus_tcp','solarman_v5'): raise ValueError('Потрібне реальне підключення')
     regs = {k: r for k, r in c['registers'].items() if r.get('writable')}
     if not regs: return {}
+    plain = [r for r in regs.values() if r.get('kind') != 'clock']
+    clocks = [dict(address=int(r['address']) + i) for r in regs.values() if r.get('kind') == 'clock' for i in range(3)]
     with inverter(c) as m:
-        m.prefetch(list(regs.values()))
+        m.prefetch(plain + clocks)
         values = {}
         for k, r in regs.items():
-            try: values[k] = m.read(r)
-            except Exception: values[k] = None
+            try:
+                if r.get('kind') == 'clock':
+                    w = [m.request(3, int(r['address']) + i, 1) for i in range(3)]
+                    values[k] = f"{2000 + (w[0] >> 8):04d}-{w[0] & 255:02d}-{w[1] >> 8:02d} {w[1] & 255:02d}:{w[2] >> 8:02d}:{w[2] & 255:02d}"
+                else: values[k] = m.read(r)
+            except Exception as e:
+                values[k] = None; log('settings read failed', k, type(e).__name__, e)
     return values
 
 def check_value(name, r, value, c):
     value = float(value)
     if not math.isfinite(value) or not float(r['min']) <= value <= float(r['max']): raise ValueError('Значення поза межами профілю')
     if 'options' in r and not any(abs(float(k) - value) < 1e-9 for k in r['options']): raise ValueError('Недопустимий варіант значення')
+    step = float(r.get('step') or 0)
+    if step and abs(value / step - round(value / step)) > 1e-6: raise ValueError('Значення не відповідає кроку ' + str(step))
     if r.get('format') == 'hhmm' and (value != int(value) or int(value) % 100 > 59 or int(value) // 100 > 23): raise ValueError('Час у форматі ГГХХ, наприклад 2230')
     if name == 'reserve_soc' and not value < float(c['target_soc']): raise ValueError('Мінімальний SOC має бути нижче цільового')
     if name == 'target_soc' and not value > float(c['reserve_soc']): raise ValueError('Цільовий SOC має бути вище мінімального')
     return value
 
-def write_setting(name, value, actor):
+def require_writes(c, r):
+    if c['mode'] not in ('modbus_tcp','solarman_v5') or not c['verified_profile'] or not c['allow_writes'] or not r.get('writable'): raise ValueError('Запис заблоковано: потрібен перевірений профіль і дозвіл')
+
+def sync_clock(actor):
+    """Set the inverter clock to this computer's local time (3 packed registers, FC16)."""
+    with LOCK:
+        c = config()
+        name, r = next(((k, x) for k, x in c['registers'].items() if x.get('kind') == 'clock'), (None, {}))
+        require_writes(c, r)
+        now = local_now(c).replace(microsecond=0)
+        words = [((now.year - 2000) << 8) | now.month, (now.day << 8) | now.hour, (now.minute << 8) | now.second]
+        with inverter(c) as m:
+            write_registers(m, int(r['address']), words)
+            back = [m.request(3, int(r['address']) + i, 1) for i in range(3)]
+        with database() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, '', 'CLOCK ' + now.isoformat()))
+        if back[:2] != words[:2]: raise ValueError('Годинник не підтверджено читанням')
+        log('clock synced', now.isoformat(), 'by', actor)
+        return now.strftime('%Y-%m-%d %H:%M:%S')
+
+def write_setting(name, value, actor, danger_ok=False):
     with LOCK:
         c = config(); r = c['registers'].get(name, {})
-        if c['mode'] not in ('modbus_tcp','solarman_v5') or not c['verified_profile'] or not c['allow_writes'] or not r.get('writable'): raise ValueError('Запис заблоковано: потрібен перевірений профіль і дозвіл')
+        require_writes(c, r)
+        if r.get('kind') == 'clock': raise ValueError('Годинник змінюється командою синхронізації')
+        if r.get('risk') == 'danger' and not danger_ok: raise ValueError('Небезпечний параметр: потрібне окреме підтвердження в панелі')
         value = check_value(name, r, value, c)
         raw = value / float(r.get('scale', 1))
         if abs(raw-round(raw)) > 1e-6: raise ValueError('Значення не відповідає кроку регістра')
@@ -327,9 +378,15 @@ def write_setting(name, value, actor):
         with inverter(c) as m:
             old = m.read(r)
             with database() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'REQUESTED ' + str(value)))
+            if 'bit' in r:
+                # Read-modify-write: only the one bit changes, the other flags in the word stay as they are.
+                if raw not in (0, 1): raise ValueError('Бітовий параметр приймає 0 або 1')
+                word = m.request(3, int(r['address']), 1); bit = int(r['bit'])
+                raw = (word & ~(1 << bit)) | (raw << bit)
             m.request(6, int(r['address']), raw & 65535)
             actual = m.read(r)
             with database() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'READBACK ' + str(actual)))
+        log('write', name, old, '->', actual, 'by', actor)
         if abs(actual-value) > 1e-6: raise ValueError('Контрольне читання не збігається; перевірте інвертор')
         if name in ('reserve_soc','target_soc'):
             c[name] = actual; save(c)
@@ -551,6 +608,7 @@ def settings_message():
     lines = ['⚙️ Параметри інвертора' + ('' if c['allow_writes'] and c['verified_profile'] else ' (зміна заблокована в панелі)')]
     for name, d in defs.items():
         val = values.get(name)
+        if d.get('kind') == 'clock': lines.append(f"{name}: {val or '—'}  ({d.get('label','')})"); continue
         shown = '—' if val is None else (d.get('options', {}).get(str(int(val)), str(val)) if 'options' in d else (f"{int(val):04d}" if d.get('format') == 'hhmm' else f"{val:g}"))
         lines.append(f"{name}: {shown} {d.get('unit','')}  ({d.get('label','')})")
     if err: lines.append('Не вдалося прочитати: ' + err)
@@ -584,7 +642,8 @@ def handle_bot_message(m, pending):
     if cmd == '/id': return f'Ваш Telegram ID: {uid}'
     if cmd == '/set' and len(parts) == 3:
         c = config(); r = c['registers'].get(parts[1])
-        if not r or not r.get('writable'): raise ValueError('Невідомий параметр. Список: /settings')
+        if not r or not r.get('writable') or r.get('kind') == 'clock': raise ValueError('Невідомий параметр. Список: /settings')
+        if r.get('risk') == 'danger': raise ValueError('Цей параметр небезпечний і змінюється лише в панелі з окремим підтвердженням.')
         value = check_value(parts[1], r, float(parts[2].replace(',', '.')), c)
         nonce = secrets.token_hex(3); pending[uid] = (nonce, time.time()+60, parts[1], value)
         label = r.get('options', {}).get(str(int(value)), parts[2]) if 'options' in r else parts[2]
@@ -667,6 +726,7 @@ def poll():
                     notify(report_message(24)); last_daily=day
             was_online=True
         except Exception as e:
+            log('poll failed:', type(e).__name__, e)
             with STATE_LOCK:
                 STATE.update(online=False,error=str(e) or type(e).__name__)
                 SITE_STATES[c['active_site']] = dict(STATE)
@@ -888,7 +948,10 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path=='/api/site/select': result=select_site(body['site_id'])
             elif self.path=='/api/write':
                 if body.get('confirm') is not True: raise ValueError('Потрібне підтвердження')
-                result={'value':write_setting(body['name'],body['value'],'web')}
+                result={'value':write_setting(body['name'],body['value'],'web',danger_ok=body.get('danger_confirm')=='ТАК')}
+            elif self.path=='/api/clock':
+                if body.get('confirm') is not True: raise ValueError('Потрібне підтвердження')
+                result={'value':sync_clock('web')}
             else: return self.send(404,'{}')
             self.json(result)
         except Exception as e: self.json({'error':str(e)},400)
