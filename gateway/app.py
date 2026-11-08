@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.08-all-settings-2'
+APP_VERSION = '2026.11.08-settings-bg-3'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
@@ -234,7 +234,7 @@ class SolarmanV5(Modbus):
             raise ValueError('Встановіть драйвер: python -m pip install -r gateway/requirements.txt') from e
         serial=int(self.c.get('logger_serial',0))
         if not 0<serial<=0xffffffff: raise ValueError('Вкажіть серійний номер логера Solarman (не інвертора)')
-        return create_v5_client(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=5,auto_reconnect=False,verbose=False)
+        return create_v5_client(self.c['host'],serial,port=int(self.c['port']),mb_slave_id=int(self.c['unit']),socket_timeout=4,auto_reconnect=False,verbose=False)
     def prefetch(self, registers):
         if not self._batch: return
         grouped=defaultdict(set)
@@ -313,26 +313,65 @@ def setting_definitions(c=None):
         if r.get('writable'): out[name] = {k: r[k] for k in ('min','max','scale','step','label','unit','options','format','group','risk','kind') if k in r}
     return out
 
-def read_settings():
-    """Current values of writable registers (read-only operation)."""
+SETTINGS = dict(values={}, running=False, done=0, total=0, error=None, updated_at=None)
+SETTINGS_LOCK = threading.Lock()
+
+def decode_setting(r, raw):
+    if r.get('kind') == 'clock':
+        w = [raw[int(r['address']) + i] for i in range(3)]
+        return f"{2000 + (w[0] >> 8):04d}-{w[0] & 255:02d}-{w[1] >> 8:02d} {w[1] & 255:02d}:{w[2] >> 8:02d}:{w[2] & 255:02d}"
+    return decode(r, lambda address: raw[address])
+
+def read_settings(progress=None):
+    """Current values of writable registers (read-only).
+
+    Reads one small block at a time and releases the logger between blocks,
+    so live polling keeps running while ~100 settings are fetched.
+    """
     c = config()
     if c['mode'] not in ('modbus_tcp','solarman_v5'): raise ValueError('Потрібне реальне підключення')
     regs = {k: r for k, r in c['registers'].items() if r.get('writable')}
-    if not regs: return {}
-    plain = [r for r in regs.values() if r.get('kind') != 'clock']
-    clocks = [dict(address=int(r['address']) + i) for r in regs.values() if r.get('kind') == 'clock' for i in range(3)]
-    with inverter(c) as m:
-        m.prefetch(plain + clocks)
-        values = {}
+    addresses = sorted({int(r['address']) + i for r in regs.values() for i in range(3 if r.get('kind') == 'clock' else 1)})
+    from solarman_io import plan_blocks
+    blocks = plan_blocks(addresses)
+    raw = {}; values = {}
+    for n, (start, count) in enumerate(blocks, 1):
+        wanted = [a for a in addresses if start <= a < start + count]
+        try:
+            with inverter(c) as m:
+                m.prefetch([dict(address=a) for a in wanted])
+                for a in wanted: raw[a] = m.request(3, a, 1)
+        except Exception as e:
+            log('settings block', start, 'failed:', type(e).__name__, e)
         for k, r in regs.items():
-            try:
-                if r.get('kind') == 'clock':
-                    w = [m.request(3, int(r['address']) + i, 1) for i in range(3)]
-                    values[k] = f"{2000 + (w[0] >> 8):04d}-{w[0] & 255:02d}-{w[1] >> 8:02d} {w[1] & 255:02d}:{w[2] >> 8:02d}:{w[2] & 255:02d}"
-                else: values[k] = m.read(r)
-            except Exception as e:
-                values[k] = None; log('settings read failed', k, type(e).__name__, e)
+            if k not in values:
+                try: values[k] = decode_setting(r, raw)
+                except KeyError: pass
+        if progress: progress(n, len(blocks), dict(values))
+        time.sleep(.2)
+    for k in regs: values.setdefault(k, None)
     return values
+
+def settings_job():
+    def progress(done, total, values):
+        with SETTINGS_LOCK: SETTINGS.update(done=done, total=total, values=values)
+    try:
+        values = read_settings(progress)
+        with SETTINGS_LOCK: SETTINGS.update(values=values, error=None, updated_at=time.time())
+    except Exception as e:
+        with SETTINGS_LOCK: SETTINGS.update(error=str(e))
+    finally:
+        with SETTINGS_LOCK: SETTINGS['running'] = False
+
+def start_settings_read():
+    with SETTINGS_LOCK:
+        if not SETTINGS['running']:
+            SETTINGS.update(running=True, done=0, total=0, error=None)
+            threading.Thread(target=settings_job, daemon=True).start()
+    return settings_state()
+
+def settings_state():
+    with SETTINGS_LOCK: return dict(SETTINGS, definitions=setting_definitions())
 
 def check_value(name, r, value, c):
     value = float(value)
@@ -362,6 +401,7 @@ def sync_clock(actor):
         with database() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, '', 'CLOCK ' + now.isoformat()))
         if back[:2] != words[:2]: raise ValueError('Годинник не підтверджено читанням')
         log('clock synced', now.isoformat(), 'by', actor)
+        with SETTINGS_LOCK: SETTINGS['values'] = dict(SETTINGS['values'], **{name: now.strftime('%Y-%m-%d %H:%M:%S')})
         return now.strftime('%Y-%m-%d %H:%M:%S')
 
 def write_setting(name, value, actor, danger_ok=False):
@@ -388,6 +428,7 @@ def write_setting(name, value, actor, danger_ok=False):
             with database() as d: d.execute('INSERT INTO audit VALUES(?,?,?,?,?)', (time.time(), actor, name, str(old), 'READBACK ' + str(actual)))
         log('write', name, old, '->', actual, 'by', actor)
         if abs(actual-value) > 1e-6: raise ValueError('Контрольне читання не збігається; перевірте інвертор')
+        with SETTINGS_LOCK: SETTINGS['values'] = dict(SETTINGS['values'], **{name: actual})
         if name in ('reserve_soc','target_soc'):
             c[name] = actual; save(c)
         return actual
@@ -905,7 +946,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/status': return self.json(status())
             if self.path=='/api/report': return self.json(report(query.get('hours',[24])[0]))
             if self.path=='/api/capabilities': return self.json(capabilities())
-            if self.path=='/api/settings': return self.json(dict(values=read_settings(),definitions=setting_definitions()))
+            if self.path=='/api/settings': return self.json(settings_state())
             if self.path=='/api/telegram': return self.json(telegram_info())
             if self.path=='/api/audit':
                 with database() as d: rows=d.execute('SELECT t,actor,setting,old,new FROM audit ORDER BY t DESC LIMIT 100').fetchall()
@@ -936,6 +977,7 @@ class Handler(BaseHTTPRequestHandler):
                 if set(body)-set(DEFAULT) or set(body)&set(SECRET_FIELDS): raise ValueError('Невідомі поля')
                 with LOCK: save(config() | body)
                 result={'ok':True}
+            elif self.path=='/api/settings/read': result=start_settings_read()
             elif self.path=='/api/profile': result=apply_profile(body['name'])
             elif self.path=='/api/telegram': result=set_telegram_token(body.get('token'))
             elif self.path=='/api/telegram/pair': result=start_pairing()

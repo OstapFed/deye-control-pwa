@@ -81,7 +81,7 @@ class SolarmanTests(NoSleepTestCase):
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):
    self.assertEqual(app.inverter(c).read({'address':100,'scale':.1}),72)
    self.assertEqual(app.inverter(c).read({'address':100,'scale':.1}),72)
-  factory.assert_called_once_with('192.168.1.10',1234567890,port=8899,mb_slave_id=1,socket_timeout=5,auto_reconnect=False,verbose=False)
+  factory.assert_called_once_with('192.168.1.10',1234567890,port=8899,mb_slave_id=1,socket_timeout=4,auto_reconnect=False,verbose=False)
   client.disconnect.assert_not_called()
  def test_non_persistent_mode_disconnects(self):
   from unittest.mock import MagicMock
@@ -161,11 +161,12 @@ class BatchedSolarmanTests(NoSleepTestCase):
   with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):p=app.read_sample(self.profile())
   self.assertEqual(p['soc'],80);self.assertEqual(p['load_w'],665);self.assertEqual(p['grid_import_w'],958);self.assertEqual(p['grid_export_w'],0);self.assertEqual(p['battery_w'],171)
   calls=client.read_holding_registers.call_args_list
-  # One block attempt fails, then the logger is read register by register (9 words).
-  self.assertEqual(sum(1 for x in calls if x.args[1]>1),1);self.assertEqual(sum(1 for x in calls if x.args[1]==1),9)
+  # Each multi-register block is tried twice, then read register by register (9 words in total).
+  blocks=[x for x in calls if x.args[1]>1];self.assertEqual(len(blocks),4);self.assertEqual(sum(1 for x in calls if x.args[1]==1),9)
   client.read_holding_registers.reset_mock()
-  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):app.read_sample(self.profile())
-  self.assertTrue(all(x.args[1]==1 for x in client.read_holding_registers.call_args_list),'blocks stay disabled after a failure')
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=factory)}):app.read_sample(self.profile());app.read_sample(self.profile())
+  later=client.read_holding_registers.call_args_list
+  self.assertEqual(sum(1 for x in later if x.args[1]>1),2,'third failed block switches to single reads for a while')
  def test_failure_closes_session_and_next_cycle_reconnects(self):
   from unittest.mock import MagicMock
   import types,sys
@@ -391,3 +392,11 @@ class AllSettingsTests(NoSleepTestCase):
   client=self.setup_logger({142:1,148:2230})
   v=app.read_settings();self.assertEqual(v['work_mode'],1);self.assertEqual(v['program_1_time'],2230)
   self.assertLess(client.read_holding_registers.call_count,20)
+
+ def test_random_drop_retries_block_not_singles(self):
+  from unittest.mock import MagicMock
+  from solarman_io import PacedReader
+  client=MagicMock();client.read_holding_registers.side_effect=[TimeoutError(),[1,2,3]]
+  reader=PacedReader(lambda:client,delay=0)
+  self.assertEqual(reader.read_many([10,11,12]),{10:1,11:2,12:3})
+  self.assertEqual([x.args for x in client.read_holding_registers.call_args_list],[(10,3),(10,3)])
