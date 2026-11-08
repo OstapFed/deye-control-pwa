@@ -46,7 +46,7 @@ def main():
  p=argparse.ArgumentParser(description='Deye SG04LP3 read-only setup. No inverter writes.')
  p.add_argument('--host',required=True);p.add_argument('--serial',required=True,type=int);p.add_argument('--unit',type=int,default=1);p.add_argument('--expected-inverter-serial');p.add_argument('--apply',action='store_true')
  args=p.parse_args()
- print('DEYE BUILD: 2026.11.08-complete-1 (persistent logger session, block reads with fallback)',flush=True)
+ print('DEYE BUILD: 2026.11.08-settings-bg-3 (background settings read, block retry)',flush=True)
  try:
   point=None; last_error=None
   for attempt in range(1,4):
@@ -64,9 +64,12 @@ def main():
    file=data/'config.json';c=read_config(file) if file.exists() else {}
    if file.exists(): (data/('config.backup-'+str(int(time.time()))+'.json')).write_bytes(file.read_bytes())
    registers=json.loads((root/'profiles/deye_sg04lp3.json').read_text(encoding='utf-8'))
-   c.update(mode='solarman_v5',host=args.host,port=8899,unit=args.unit,logger_serial=args.serial,registers=registers,poll_seconds=10,verified_profile=False,allow_writes=False)
+   # Write permission survives an update only if the register map and the device are exactly the same.
+   same=c.get('registers')==registers and c.get('host')==args.host and int(c.get('logger_serial') or 0)==args.serial
+   keep=dict(verified_profile=bool(c.get('verified_profile')),allow_writes=bool(c.get('allow_writes'))) if same else dict(verified_profile=False,allow_writes=False)
+   c.update(mode='solarman_v5',host=args.host,port=8899,unit=args.unit,logger_serial=args.serial,registers=registers,poll_seconds=c.get('poll_seconds',10),**keep)
    temp=data/'config.pending';temp.write_text(json.dumps(c,ensure_ascii=False,indent=2),encoding='utf-8');temp.replace(file)
-   print('Local profile saved (telemetry + settings map). Inverter settings unchanged. Writes remain DISABLED until enabled in the panel.')
+   print('Local profile saved. Inverter settings unchanged. Writes '+('remain ENABLED (same register map).' if c['allow_writes'] else 'are DISABLED until enabled in the panel.'))
   return 0
  except Exception as e:print('Setup failed: '+type(e).__name__+': '+(str(e) or repr(e)),flush=True);return 1
 if __name__=='__main__':sys.exit(main())

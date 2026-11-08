@@ -400,3 +400,19 @@ class AllSettingsTests(NoSleepTestCase):
   reader=PacedReader(lambda:client,delay=0)
   self.assertEqual(reader.read_many([10,11,12]),{10:1,11:2,12:3})
   self.assertEqual([x.args for x in client.read_holding_registers.call_args_list],[(10,3),(10,3)])
+
+class UpdateKeepsPermissionTests(NoSleepTestCase):
+ def run_configure(self,dest,host='192.168.1.10'):
+  import types,sys
+  from unittest.mock import MagicMock
+  spec=importlib.util.spec_from_file_location('configure_keep',Path(__file__).parents[1]/'gateway/configure_deye.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  regs={0:5,3:0x3132,4:0x3334,5:0x3536,6:0x3738,7:0x3930,552:4,587:5000,588:72,590:65336,625:65036,690:65535,653:2000,659:0,672:1500,673:1200}
+  client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[regs.get(i,0) for i in range(a,a+n)]
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}),patch.dict(os.environ,{'DEYE_DATA':dest}),patch.object(sys,'argv',['configure','--host',host,'--serial','123','--apply']),patch('builtins.print'):
+   self.assertEqual(m.main(),0)
+  return json.loads((Path(dest)/'config.json').read_text())
+ def test_same_map_keeps_writes_other_device_resets(self):
+  dest=tempfile.mkdtemp();c=self.run_configure(dest);self.assertFalse(c['allow_writes'])
+  c.update(verified_profile=True,allow_writes=True);(Path(dest)/'config.json').write_text(json.dumps(c))
+  self.assertTrue(self.run_configure(dest)['allow_writes'])
+  self.assertFalse(self.run_configure(dest,host='192.168.1.11')['allow_writes'])
