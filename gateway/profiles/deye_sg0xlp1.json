@@ -1,0 +1,1174 @@
+{
+ "soc": {
+  "address": 184,
+  "label": "Заряд батареї",
+  "unit": "%"
+ },
+ "pv_w": {
+  "address": 186,
+  "sum_addresses": [
+   187
+  ],
+  "label": "Генерація PV",
+  "unit": "Вт"
+ },
+ "load_w": {
+  "address": 178,
+  "signed": true,
+  "label": "Навантаження",
+  "unit": "Вт"
+ },
+ "grid_on": {
+  "address": 194,
+  "bit": 0,
+  "label": "Мережа"
+ },
+ "grid_import_w": {
+  "address": 169,
+  "signed": true,
+  "clip": "positive",
+  "label": "Імпорт",
+  "unit": "Вт"
+ },
+ "grid_export_w": {
+  "address": 169,
+  "signed": true,
+  "clip": "negative",
+  "label": "Експорт",
+  "unit": "Вт"
+ },
+ "battery_w": {
+  "address": 190,
+  "signed": true,
+  "scale": -1,
+  "label": "Батарея (+заряд/−розряд)",
+  "unit": "Вт"
+ },
+ "battery_voltage_v": {
+  "address": 183,
+  "scale": 0.01,
+  "label": "Напруга батареї",
+  "unit": "В"
+ },
+ "battery_temp_c": {
+  "address": 182,
+  "offset": 1000,
+  "scale": 0.1,
+  "label": "Температура батареї",
+  "unit": "°C"
+ },
+ "inverter_temp_c": {
+  "address": 91,
+  "offset": 1000,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Температура інвертора",
+  "unit": "°C"
+ },
+ "today_pv_kwh": {
+  "address": 108,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Генерація сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_load_kwh": {
+  "address": 84,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Споживання сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_import_kwh": {
+  "address": 76,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Імпорт сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_export_kwh": {
+  "address": 77,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Експорт сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_battery_charge_kwh": {
+  "address": 70,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Заряд батареї сьогодні",
+  "unit": "кВт·год"
+ },
+ "today_battery_discharge_kwh": {
+  "address": 71,
+  "scale": 0.1,
+  "every": 60,
+  "label": "Розряд батареї сьогодні",
+  "unit": "кВт·год"
+ },
+ "self_check_time": {
+  "address": 21,
+  "writable": true,
+  "label": "Час самоперевірки",
+  "group": "Сервіс",
+  "risk": "danger",
+  "unit": "с",
+  "min": 0,
+  "max": 1000
+ },
+ "inverter_clock": {
+  "address": 22,
+  "writable": true,
+  "kind": "clock",
+  "label": "Годинник інвертора",
+  "group": "Сервіс"
+ },
+ "inverter_power": {
+  "address": 43,
+  "writable": true,
+  "label": "Інвертор увімкнено (ON/OFF)",
+  "group": "Сервіс",
+  "risk": "danger",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "battery_control_mode": {
+  "address": 200,
+  "writable": true,
+  "label": "Тип батареї (керування)",
+  "group": "Батарея",
+  "risk": "danger",
+  "options": {
+   "0": "Lead-Battery, four-stage charging method",
+   "1": "Літієва (BMS)"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "battery_equalization": {
+  "address": 201,
+  "writable": true,
+  "label": "Напруга вирівнювання",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "battery_absorption": {
+  "address": 202,
+  "writable": true,
+  "label": "Напруга абсорбції",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "battery_float": {
+  "address": 203,
+  "writable": true,
+  "label": "Напруга підтримки (Float)",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "battery_capacity": {
+  "address": 204,
+  "writable": true,
+  "label": "Ємність батареї",
+  "group": "Батарея",
+  "risk": "danger",
+  "unit": "А·год",
+  "min": 0,
+  "max": 2000
+ },
+ "battery_empty": {
+  "address": 205,
+  "writable": true,
+  "label": "Напруга «порожньої» батареї",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "zero_export_power": {
+  "address": 206,
+  "writable": true,
+  "label": "Потужність нульового експорту",
+  "group": "Батарея",
+  "signed": true,
+  "unit": "Вт",
+  "min": -200,
+  "max": 500
+ },
+ "battery_equalization_cycle": {
+  "address": 207,
+  "writable": true,
+  "label": "Цикл вирівнювання",
+  "group": "Батарея",
+  "risk": "danger",
+  "unit": "дн",
+  "min": 0,
+  "max": 90
+ },
+ "battery_equalization_time": {
+  "address": 208,
+  "writable": true,
+  "label": "Тривалість вирівнювання",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.5,
+  "unit": "год",
+  "min": 0,
+  "max": 10
+ },
+ "battery_temperature_compensation": {
+  "address": 209,
+  "writable": true,
+  "label": "Температурна компенсація",
+  "group": "Батарея",
+  "risk": "danger",
+  "signed": true,
+  "unit": "мВ/°C",
+  "min": 0,
+  "max": 50,
+  "step": 0.1
+ },
+ "battery_max_charging_current": {
+  "address": 210,
+  "writable": true,
+  "label": "Макс. струм заряду батареї",
+  "group": "Батарея",
+  "unit": "А",
+  "min": 0,
+  "max": 190.0
+ },
+ "battery_max_discharging_current": {
+  "address": 211,
+  "writable": true,
+  "label": "Макс. струм розряду батареї",
+  "group": "Батарея",
+  "unit": "А",
+  "min": 0,
+  "max": 190.0
+ },
+ "battery_operation_mode": {
+  "address": 213,
+  "writable": true,
+  "label": "Режим роботи батареї (за напругою/SOC)",
+  "group": "Батарея",
+  "risk": "danger",
+  "options": {
+   "0": "За напругою",
+   "1": "За SOC (%)",
+   "2": "Без батареї"
+  },
+  "min": 0,
+  "max": 2
+ },
+ "battery_resistance": {
+  "address": 215,
+  "writable": true,
+  "label": "Внутрішній опір батареї",
+  "group": "Батарея",
+  "risk": "danger",
+  "unit": "мОм",
+  "min": 0,
+  "max": 6000
+ },
+ "battery_charging_efficiency": {
+  "address": 216,
+  "writable": true,
+  "label": "ККД заряду батареї",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.1,
+  "unit": "%",
+  "min": 0.0,
+  "max": 100.0
+ },
+ "battery_shutdown_soc": {
+  "address": 217,
+  "writable": true,
+  "label": "SOC вимкнення (Shutdown)",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "battery_restart_soc": {
+  "address": 218,
+  "writable": true,
+  "label": "SOC перезапуску (Restart)",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "battery_low_soc": {
+  "address": 219,
+  "writable": true,
+  "label": "Низький SOC (Low Batt)",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "battery_shutdown_voltage": {
+  "address": 220,
+  "writable": true,
+  "label": "Напруга вимкнення (Shutdown)",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "battery_restart_voltage": {
+  "address": 221,
+  "writable": true,
+  "label": "Напруга перезапуску (Restart)",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "battery_low_voltage": {
+  "address": 222,
+  "writable": true,
+  "label": "Низька напруга (Low Batt)",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 61,
+  "step": 0.1
+ },
+ "generator_operating_time": {
+  "address": 223,
+  "writable": true,
+  "label": "Час роботи генератора",
+  "group": "Батарея",
+  "scale": 0.1,
+  "unit": "год",
+  "min": 0,
+  "max": 24
+ },
+ "generator_cooling_time": {
+  "address": 224,
+  "writable": true,
+  "label": "Час охолодження генератора",
+  "group": "Батарея",
+  "scale": 0.1,
+  "unit": "год",
+  "min": 0,
+  "max": 24
+ },
+ "battery_generator_charging_start_voltage": {
+  "address": 225,
+  "writable": true,
+  "label": "Заряд від генератора: старт за напругою",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 63,
+  "step": 0.1
+ },
+ "battery_generator_charging_start": {
+  "address": 226,
+  "writable": true,
+  "label": "Заряд від генератора: старт при SOC",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "battery_generator_charging_current": {
+  "address": 227,
+  "writable": true,
+  "label": "Струм заряду від генератора",
+  "group": "Батарея",
+  "unit": "А",
+  "min": 0,
+  "max": 190.0
+ },
+ "battery_grid_charging_start_voltage": {
+  "address": 228,
+  "writable": true,
+  "label": "Заряд від мережі: старт за напругою",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 63,
+  "step": 0.1
+ },
+ "battery_grid_charging_start": {
+  "address": 229,
+  "writable": true,
+  "label": "Заряд від мережі: старт при SOC",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "battery_grid_charging_current": {
+  "address": 230,
+  "writable": true,
+  "label": "Струм заряду від мережі",
+  "group": "Батарея",
+  "unit": "А",
+  "min": 0,
+  "max": 190.0
+ },
+ "battery_generator_charging": {
+  "address": 231,
+  "writable": true,
+  "label": "Заряд від генератора",
+  "group": "Батарея",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "battery_grid_charging": {
+  "address": 232,
+  "writable": true,
+  "label": "Заряд від мережі",
+  "group": "Батарея",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "generator": {
+  "address": 326,
+  "writable": true,
+  "label": "Генератор",
+  "group": "Батарея",
+  "bit": 13,
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "io_mode": {
+  "address": 235,
+  "writable": true,
+  "label": "Режим входу GEN (генератор/SmartLoad)",
+  "group": "Батарея",
+  "risk": "danger",
+  "options": {
+   "0": "Генератор",
+   "1": "SmartLoad",
+   "2": "Microinverter"
+  },
+  "min": 0,
+  "max": 2
+ },
+ "smartload_off_voltage": {
+  "address": 236,
+  "writable": true,
+  "label": "SmartLoad: вимкнути при напрузі",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 63,
+  "step": 0.1
+ },
+ "smartload_off": {
+  "address": 237,
+  "writable": true,
+  "label": "SmartLoad: вимкнути при SOC",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "smartload_on_voltage": {
+  "address": 238,
+  "writable": true,
+  "label": "SmartLoad: увімкнути при напрузі",
+  "group": "Батарея",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 38,
+  "max": 63,
+  "step": 0.1
+ },
+ "smartload_on": {
+  "address": 239,
+  "writable": true,
+  "label": "SmartLoad: увімкнути при SOC",
+  "group": "Батарея",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "generator_min_pv_power": {
+  "address": 241,
+  "writable": true,
+  "label": "Мін. PV-потужність для SmartLoad",
+  "group": "Інше",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000
+ },
+ "charging_signal": {
+  "address": 242,
+  "writable": true,
+  "label": "Сигнал заряду",
+  "group": "Інше",
+  "risk": "danger",
+  "options": {
+   "0": "Normal",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "energy_pattern": {
+  "address": 243,
+  "writable": true,
+  "label": "Пріоритет енергії (батарея/навантаження)",
+  "group": "Режим",
+  "options": {
+   "0": "Спершу батарея",
+   "1": "Спершу навантаження"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "work_mode": {
+  "address": 244,
+  "writable": true,
+  "label": "Режим роботи",
+  "group": "Режим",
+  "options": {
+   "0": "Продаж надлишку (Export First)",
+   "1": "Нуль експорту на навантаження",
+   "2": "Нуль експорту на CT"
+  },
+  "min": 0,
+  "max": 2
+ },
+ "export_surplus_power": {
+  "address": 245,
+  "writable": true,
+  "label": "Макс. потужність продажу",
+  "group": "Режим",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "export_surplus": {
+  "address": 247,
+  "writable": true,
+  "label": "Продаж сонячної енергії",
+  "group": "Режим",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "pv_power": {
+  "address": 53,
+  "writable": true,
+  "label": "Макс. потужність PV",
+  "group": "Режим",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "time_of_use": {
+  "address": 248,
+  "writable": true,
+  "label": "Розклад (Time of Use)",
+  "group": "Режим",
+  "options": {
+   "0": "Вимкнено",
+   "255": "Увімкнено щодня",
+   "63": "Увімкнено: будні",
+   "193": "Увімкнено: вихідні"
+  },
+  "min": 0,
+  "max": 255
+ },
+ "program_1_time": {
+  "address": 250,
+  "writable": true,
+  "label": "Програма 1: початок",
+  "group": "Розклад",
+  "min": 0,
+  "max": 2359,
+  "format": "hhmm",
+  "unit": "год:хв"
+ },
+ "program_2_time": {
+  "address": 251,
+  "writable": true,
+  "label": "Програма 2: початок",
+  "group": "Розклад",
+  "min": 0,
+  "max": 2359,
+  "format": "hhmm",
+  "unit": "год:хв"
+ },
+ "program_3_time": {
+  "address": 252,
+  "writable": true,
+  "label": "Програма 3: початок",
+  "group": "Розклад",
+  "min": 0,
+  "max": 2359,
+  "format": "hhmm",
+  "unit": "год:хв"
+ },
+ "program_4_time": {
+  "address": 253,
+  "writable": true,
+  "label": "Програма 4: початок",
+  "group": "Розклад",
+  "min": 0,
+  "max": 2359,
+  "format": "hhmm",
+  "unit": "год:хв"
+ },
+ "program_5_time": {
+  "address": 254,
+  "writable": true,
+  "label": "Програма 5: початок",
+  "group": "Розклад",
+  "min": 0,
+  "max": 2359,
+  "format": "hhmm",
+  "unit": "год:хв"
+ },
+ "program_6_time": {
+  "address": 255,
+  "writable": true,
+  "label": "Програма 6: початок",
+  "group": "Розклад",
+  "min": 0,
+  "max": 2359,
+  "format": "hhmm",
+  "unit": "год:хв"
+ },
+ "program_1_power": {
+  "address": 256,
+  "writable": true,
+  "label": "Програма 1: потужність",
+  "group": "Розклад",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "program_2_power": {
+  "address": 257,
+  "writable": true,
+  "label": "Програма 2: потужність",
+  "group": "Розклад",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "program_3_power": {
+  "address": 258,
+  "writable": true,
+  "label": "Програма 3: потужність",
+  "group": "Розклад",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "program_4_power": {
+  "address": 259,
+  "writable": true,
+  "label": "Програма 4: потужність",
+  "group": "Розклад",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "program_5_power": {
+  "address": 260,
+  "writable": true,
+  "label": "Програма 5: потужність",
+  "group": "Розклад",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "program_6_power": {
+  "address": 261,
+  "writable": true,
+  "label": "Програма 6: потужність",
+  "group": "Розклад",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "program_1_voltage": {
+  "address": 262,
+  "writable": true,
+  "label": "Програма 1: напруга",
+  "group": "Розклад",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 61,
+  "step": 0.1
+ },
+ "program_2_voltage": {
+  "address": 263,
+  "writable": true,
+  "label": "Програма 2: напруга",
+  "group": "Розклад",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 61,
+  "step": 0.1
+ },
+ "program_3_voltage": {
+  "address": 264,
+  "writable": true,
+  "label": "Програма 3: напруга",
+  "group": "Розклад",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 61,
+  "step": 0.1
+ },
+ "program_4_voltage": {
+  "address": 265,
+  "writable": true,
+  "label": "Програма 4: напруга",
+  "group": "Розклад",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 61,
+  "step": 0.1
+ },
+ "program_5_voltage": {
+  "address": 266,
+  "writable": true,
+  "label": "Програма 5: напруга",
+  "group": "Розклад",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 61,
+  "step": 0.1
+ },
+ "program_6_voltage": {
+  "address": 267,
+  "writable": true,
+  "label": "Програма 6: напруга",
+  "group": "Розклад",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "В",
+  "min": 0,
+  "max": 61,
+  "step": 0.1
+ },
+ "program_1_soc": {
+  "address": 268,
+  "writable": true,
+  "label": "Програма 1: цільовий SOC",
+  "group": "Розклад",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "program_2_soc": {
+  "address": 269,
+  "writable": true,
+  "label": "Програма 2: цільовий SOC",
+  "group": "Розклад",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "program_3_soc": {
+  "address": 270,
+  "writable": true,
+  "label": "Програма 3: цільовий SOC",
+  "group": "Розклад",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "program_4_soc": {
+  "address": 271,
+  "writable": true,
+  "label": "Програма 4: цільовий SOC",
+  "group": "Розклад",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "program_5_soc": {
+  "address": 272,
+  "writable": true,
+  "label": "Програма 5: цільовий SOC",
+  "group": "Розклад",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "program_6_soc": {
+  "address": 273,
+  "writable": true,
+  "label": "Програма 6: цільовий SOC",
+  "group": "Розклад",
+  "unit": "%",
+  "min": 0,
+  "max": 100
+ },
+ "program_1_charging": {
+  "address": 274,
+  "writable": true,
+  "label": "Програма 1: заряд від",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "program_2_charging": {
+  "address": 275,
+  "writable": true,
+  "label": "Програма 2: заряд від",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "program_3_charging": {
+  "address": 276,
+  "writable": true,
+  "label": "Програма 3: заряд від",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "program_4_charging": {
+  "address": 277,
+  "writable": true,
+  "label": "Програма 4: заряд від",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "program_5_charging": {
+  "address": 278,
+  "writable": true,
+  "label": "Програма 5: заряд від",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "program_6_charging": {
+  "address": 279,
+  "writable": true,
+  "label": "Програма 6: заряд від",
+  "group": "Розклад",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Мережа",
+   "2": "Генератор",
+   "3": "Мережа і генератор"
+  },
+  "min": 0,
+  "max": 3
+ },
+ "microinverter_export_cut_off": {
+  "address": 280,
+  "writable": true,
+  "label": "Відсічення експорту мікроінвертора",
+  "group": "Режим",
+  "risk": "danger",
+  "bit": 0,
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "generator_peak_shaving": {
+  "address": 280,
+  "writable": true,
+  "label": "Peak shaving генератора",
+  "group": "Режим",
+  "bit": 4,
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "grid_peak_shaving": {
+  "address": 280,
+  "writable": true,
+  "label": "Peak shaving мережі",
+  "group": "Режим",
+  "bit": 8,
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "generator_on_grid": {
+  "address": 280,
+  "writable": true,
+  "label": "Генератор паралельно з мережею",
+  "group": "Режим",
+  "risk": "danger",
+  "bit": 12,
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "off_grid": {
+  "address": 281,
+  "writable": true,
+  "label": "Автономний режим (Off Grid)",
+  "group": "Режим",
+  "risk": "danger",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "grid_reconnection_time": {
+  "address": 282,
+  "writable": true,
+  "label": "Затримка повторного підключення до мережі",
+  "group": "Режим",
+  "unit": "с",
+  "min": 1,
+  "max": 300
+ },
+ "grid_frequency": {
+  "address": 285,
+  "writable": true,
+  "label": "Номінальна частота мережі",
+  "group": "Режим",
+  "risk": "danger",
+  "options": {
+   "0": "50 Hz",
+   "1": "60 Hz"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "grid_voltage_protection_high": {
+  "address": 287,
+  "writable": true,
+  "label": "Захист мережі: макс. напруга",
+  "group": "Режим",
+  "risk": "danger",
+  "scale": 0.1,
+  "unit": "В",
+  "min": 100.0,
+  "max": 290.0
+ },
+ "grid_voltage_protection_low": {
+  "address": 288,
+  "writable": true,
+  "label": "Захист мережі: мін. напруга",
+  "group": "Режим",
+  "risk": "danger",
+  "scale": 0.1,
+  "unit": "В",
+  "min": 100.0,
+  "max": 290.0
+ },
+ "grid_frequency_protection_high": {
+  "address": 289,
+  "writable": true,
+  "label": "Захист мережі: макс. частота",
+  "group": "Режим",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "Гц",
+  "min": 45.0,
+  "max": 65.0
+ },
+ "grid_frequency_protection_low": {
+  "address": 290,
+  "writable": true,
+  "label": "Захист мережі: мін. частота",
+  "group": "Режим",
+  "risk": "danger",
+  "scale": 0.01,
+  "unit": "Гц",
+  "min": 45.0,
+  "max": 65.0
+ },
+ "generator_grid_side": {
+  "address": 291,
+  "writable": true,
+  "label": "Генератор на стороні мережі",
+  "group": "Режим",
+  "risk": "danger",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "generator_peak_shaving_292": {
+  "address": 292,
+  "writable": true,
+  "label": "Peak shaving генератора: потужність",
+  "group": "Режим",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "grid_peak_shaving_293": {
+  "address": 293,
+  "writable": true,
+  "label": "Peak shaving мережі: потужність",
+  "group": "Режим",
+  "unit": "Вт",
+  "min": 0,
+  "max": 8000.0
+ },
+ "battery_bms_type": {
+  "address": 325,
+  "writable": true,
+  "label": "Тип BMS / протокол",
+  "group": "Режим",
+  "risk": "danger",
+  "options": {
+   "0": "PYLON",
+   "1": "Tianbangda",
+   "2": "KOK",
+   "3": "Keith",
+   "4": "Toppai",
+   "5": "Peneng 485",
+   "6": "Jeris 485",
+   "7": "Sunwoda 485",
+   "8": "Xinrui 485",
+   "9": "Tianbangda 485",
+   "10": "Shenggao Electric CAN"
+  },
+  "min": 0,
+  "max": 10
+ },
+ "ac_coupling_grid": {
+  "address": 326,
+  "bit": 6,
+  "writable": true,
+  "label": "AC Coupling на стороні мережі",
+  "group": "Батарея",
+  "risk": "danger",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ },
+ "ac_coupling_load": {
+  "address": 326,
+  "bit": 7,
+  "writable": true,
+  "label": "AC Coupling на стороні навантаження",
+  "group": "Батарея",
+  "risk": "danger",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
+ }
+}

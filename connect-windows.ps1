@@ -17,7 +17,13 @@ $deyeData=Join-Path $deyeRoot 'data'
 $deyePython=Join-Path $deyeRoot '.venv\Scripts\python.exe'
 $deyePythonW=Join-Path $deyeRoot '.venv\Scripts\pythonw.exe'
 $taskName='DEYE Control'
-if (-not (Test-Path $deyePython)) {throw 'Run install-windows.ps1 first.'}
+if (-not (Test-Path $deyePython)) {
+ # First install on this computer: Python, virtual environment and Solarman driver.
+ Write-Host '[0/6] First install on this computer: preparing Python...' -ForegroundColor Cyan
+ $installer=Invoke-WebRequest -UseBasicParsing ('https://raw.githubusercontent.com/OstapFed/deye-control-pwa/'+$SourceRef+'/install-windows.ps1')
+ & ([scriptblock]::Create($installer.Content)) -LoggerHost $LoggerHost -LoggerSerial $LoggerSerial
+ if (-not (Test-Path $deyePython)) {throw 'Python setup did not finish. Run this command again.'}
+}
 
 Write-Host '[1/6] Stopping the previous DEYE server...'
 $task=Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -28,7 +34,20 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" 
  Write-Host ('Stopping previous DEYE gateway PID '+$_.ProcessId)
  Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
 }
+# An older manual install (for example %USERPROFILE%\DeyeControl) may still hold port 8080.
+foreach ($c in @(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue)) {
+ $owner=Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+ if ($owner -and $owner.ProcessName -match '^pythonw?$') {Write-Host ('Stopping older DEYE server on port 8080 (PID '+$owner.Id+')'); Stop-Process -Id $owner.Id -Force -ErrorAction SilentlyContinue}
+}
 Start-Sleep -Seconds 2
+$legacy=Join-Path $env:USERPROFILE 'DeyeControl'
+if ((Test-Path (Join-Path $legacy 'data\config.json')) -and -not (Test-Path (Join-Path $deyeData 'config.json'))) {
+ Write-Host 'Moving settings and history from the older install...'
+ New-Item -ItemType Directory -Force -Path $deyeData | Out-Null
+ foreach ($f in @('config.json','history.sqlite')) {if (Test-Path (Join-Path $legacy ('data\'+$f))) {Copy-Item (Join-Path $legacy ('data\'+$f)) (Join-Path $deyeData $f) -Force}}
+}
+$legacyStart=Join-Path $legacy 'Start-DEYE.ps1'
+if (Test-Path $legacyStart) {Rename-Item $legacyStart 'Start-DEYE.ps1.old' -Force -ErrorAction SilentlyContinue; Write-Host 'Old launcher renamed to Start-DEYE.ps1.old (the new server starts automatically).'}
 
 Write-Host '[2/6] Downloading the latest version...'
 $env:PYTHONIOENCODING='utf-8'

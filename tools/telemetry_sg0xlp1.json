@@ -1,0 +1,18 @@
+{
+ "soc":{"address":184,"label":"Заряд батареї","unit":"%"},
+ "pv_w":{"address":186,"sum_addresses":[187],"label":"Генерація PV","unit":"Вт"},
+ "load_w":{"address":178,"signed":true,"label":"Навантаження","unit":"Вт"},
+ "grid_on":{"address":194,"bit":0,"label":"Мережа"},
+ "grid_import_w":{"address":169,"signed":true,"clip":"positive","label":"Імпорт","unit":"Вт"},
+ "grid_export_w":{"address":169,"signed":true,"clip":"negative","label":"Експорт","unit":"Вт"},
+ "battery_w":{"address":190,"signed":true,"scale":-1,"label":"Батарея (+заряд/−розряд)","unit":"Вт"},
+ "battery_voltage_v":{"address":183,"scale":0.01,"label":"Напруга батареї","unit":"В"},
+ "battery_temp_c":{"address":182,"offset":1000,"scale":0.1,"label":"Температура батареї","unit":"°C"},
+ "inverter_temp_c":{"address":91,"offset":1000,"scale":0.1,"every":60,"label":"Температура інвертора","unit":"°C"},
+ "today_pv_kwh":{"address":108,"scale":0.1,"every":60,"label":"Генерація сьогодні","unit":"кВт·год"},
+ "today_load_kwh":{"address":84,"scale":0.1,"every":60,"label":"Споживання сьогодні","unit":"кВт·год"},
+ "today_import_kwh":{"address":76,"scale":0.1,"every":60,"label":"Імпорт сьогодні","unit":"кВт·год"},
+ "today_export_kwh":{"address":77,"scale":0.1,"every":60,"label":"Експорт сьогодні","unit":"кВт·год"},
+ "today_battery_charge_kwh":{"address":70,"scale":0.1,"every":60,"label":"Заряд батареї сьогодні","unit":"кВт·год"},
+ "today_battery_discharge_kwh":{"address":71,"scale":0.1,"every":60,"label":"Розряд батареї сьогодні","unit":"кВт·год"}
+}
