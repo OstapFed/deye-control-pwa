@@ -14,11 +14,11 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.08-fc16-write-4'
+APP_VERSION = '2026.11.09-multi-model-5'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
-DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], telegram_token='', daily_report_hour=20, warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[], logger_serial=0, persistent_connection=True)
+DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], telegram_token='', daily_report_hour=20, warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[], logger_serial=0, persistent_connection=True, profile_name='deye_sg04lp3')
 PROFILES = ROOT / 'profiles'
 
 def log(*parts):
@@ -442,12 +442,15 @@ def write_setting(name, value, actor, danger_ok=False):
             c[name] = actual; save(c)
         return actual
 
+PROFILE_NAMES = ('deye_sg04lp3', 'deye_sg0xlp1', 'deye_sg04lp3_readonly')
+
 def apply_profile(name):
-    if name not in ('deye_sg04lp3', 'deye_sg04lp3_readonly'): raise ValueError('Невідомий профіль')
+    if name == 'auto': name = config().get('profile_name') or 'deye_sg04lp3'
+    if name not in PROFILE_NAMES: raise ValueError('Невідомий профіль')
     registers = json.loads((PROFILES / (name + '.json')).read_text(encoding='utf-8'))
     # A new map is never trusted for writes until the owner confirms it again.
-    update_config(registers=registers, verified_profile=False, allow_writes=False)
-    return dict(ok=True, registers=len(registers))
+    update_config(registers=registers, verified_profile=False, allow_writes=False, profile_name=name)
+    return dict(ok=True, registers=len(registers), profile=name)
 
 # ---------------------------------------------------------------- state and schedule
 

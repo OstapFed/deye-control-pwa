@@ -190,7 +190,7 @@ class SetupRecoveryTests(NoSleepTestCase):
  def test_setup_retries_transient_error(self):
   import sys
   m=self.module()
-  with patch.object(sys,'argv',['configure','--host','192.168.1.10','--serial','123']),patch.object(m,'identify_and_read',side_effect=[RuntimeError('TimeoutError at identity'),{'soc':80}]) as reader,patch.object(m.time,'sleep') as sleep,patch('builtins.print'):
+  with patch.object(sys,'argv',['configure','--host','192.168.1.10','--serial','123']),patch.object(m,'identify_and_read',side_effect=[RuntimeError('TimeoutError at identity'),({'soc':80},'deye_sg04lp3')]) as reader,patch.object(m.time,'sleep') as sleep,patch('builtins.print'):
    self.assertEqual(m.main(),0)
   self.assertEqual(reader.call_count,2);sleep.assert_called_once_with(2)
 
@@ -417,3 +417,36 @@ class UpdateKeepsPermissionTests(NoSleepTestCase):
   c.update(verified_profile=True,allow_writes=True);(Path(dest)/'config.json').write_text(json.dumps(c))
   self.assertTrue(self.run_configure(dest)['allow_writes'])
   self.assertFalse(self.run_configure(dest,host='192.168.1.11')['allow_writes'])
+
+class SinglePhaseTests(NoSleepTestCase):
+ def test_configure_detects_single_phase_and_applies_its_profile(self):
+  import types,sys
+  from unittest.mock import MagicMock
+  spec=importlib.util.spec_from_file_location('configure_sp',Path(__file__).parents[1]/'gateway/configure_deye.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+  regs={0:3,3:0x3132,4:0x3334,5:0x3536,6:0x3738,7:0x3930,184:99,186:300,187:200,178:586,194:1,169:664,190:65529,183:5320}
+  client=MagicMock();client.read_holding_registers.side_effect=lambda a,n:[regs.get(i,0) for i in range(a,a+n)]
+  dest=tempfile.mkdtemp();(Path(dest)/'config.json').write_text(json.dumps({'address':'Робота','capacity_kwh':10}))
+  with patch('solarman_client.framed_class',side_effect=lambda cls:cls),patch.dict(sys.modules,{'pysolarmanv5':types.SimpleNamespace(PySolarmanV5=MagicMock(return_value=client))}),patch.dict(os.environ,{'DEYE_DATA':dest}),patch.object(sys,'argv',['configure','--host','192.168.1.147','--serial','2932872487','--apply']),patch('builtins.print') as out:
+   self.assertEqual(m.main(),0)
+  c=json.loads((Path(dest)/'config.json').read_text())
+  self.assertEqual(c['profile_name'],'deye_sg0xlp1');self.assertEqual(c['address'],'Робота');self.assertEqual(c['registers']['soc']['address'],184)
+  self.assertEqual(c['registers']['work_mode']['address'],244);self.assertFalse(c['allow_writes'])
+  printed=' '.join(str(x.args[0]) for x in out.call_args_list if x.args)
+  self.assertIn('single-phase',printed);self.assertIn('"pv_w": 500',printed)
+ def test_profiles_validate_and_respect_limits(self):
+  for name,amps,watts in (('deye_sg04lp3',240,12000),('deye_sg0xlp1',190,8000)):
+   regs=json.loads((Path(__file__).parents[1]/'gateway/profiles'/(name+'.json')).read_text())
+   app.validate(app.DEFAULT|{'registers':regs})
+   for k,r in regs.items():
+    if r.get('unit')=='А' and r.get('writable'):self.assertLessEqual(r['max'],amps,k)
+    if r.get('unit')=='Вт' and r.get('writable'):self.assertLessEqual(r['max'],watts,k)
+   # flags that share a register must be single-bit writes
+   by_reg={}
+   for k,r in regs.items():
+    if r.get('writable') and r.get('kind')!='clock':by_reg.setdefault(r['address'],[]).append(r)
+   for a,rs in by_reg.items():
+    if len(rs)>1:self.assertTrue(all('bit' in r for r in rs),(name,a,[r['label'] for r in rs]))
+ def test_apply_profile_auto_uses_detected_model(self):
+  app.save(app.DEFAULT|{'profile_name':'deye_sg0xlp1'})
+  r=app.apply_profile('auto');self.assertEqual(r['profile'],'deye_sg0xlp1');self.assertEqual(app.config()['registers']['soc']['address'],184)
+  app.save(dict(app.DEFAULT))

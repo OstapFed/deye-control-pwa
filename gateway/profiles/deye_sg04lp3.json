@@ -1151,7 +1151,7 @@
  "generator_peak_shaving_190": {
   "address": 190,
   "writable": true,
-  "label": "Peak shaving генератора",
+  "label": "Peak shaving генератора: потужність",
   "group": "Режим",
   "unit": "Вт",
   "min": 0,
@@ -1160,7 +1160,7 @@
  "grid_peak_shaving_191": {
   "address": 191,
   "writable": true,
-  "label": "Peak shaving мережі",
+  "label": "Peak shaving мережі: потужність",
   "group": "Режим",
   "unit": "Вт",
   "min": 0,
@@ -1186,19 +1186,33 @@
   "min": 0,
   "max": 12000
  },
- "ac_coupling": {
+ "ac_coupling_grid": {
   "address": 234,
+  "bit": 0,
   "writable": true,
-  "label": "AC Coupling",
-  "group": "Режим",
+  "label": "AC Coupling на стороні мережі",
+  "group": "Батарея",
   "risk": "danger",
   "options": {
    "0": "Вимкнено",
-   "1": "На стороні мережі",
-   "2": "На стороні навантаження"
+   "1": "Увімкнено"
   },
   "min": 0,
-  "max": 2
+  "max": 1
+ },
+ "ac_coupling_load": {
+  "address": 234,
+  "bit": 1,
+  "writable": true,
+  "label": "AC Coupling на стороні навантаження",
+  "group": "Батарея",
+  "risk": "danger",
+  "options": {
+   "0": "Вимкнено",
+   "1": "Увімкнено"
+  },
+  "min": 0,
+  "max": 1
  },
  "battery_bms_type": {
   "address": 223,

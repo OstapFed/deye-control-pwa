@@ -2,7 +2,7 @@
 
 **Панель на телефоні: https://ostapfed.github.io/deye-control-pwa/** (демо, або клієнт вашого сервера)
 
-Моніторинг і керування гібридним інвертором **Deye SUN-12K-SG04LP3-EU** через Wi-Fi-логер Solarman (V5, порт 8899): PWA для телефона й комп’ютера, Telegram-бот, сповіщення про відключення світла з прогнозом заряду.
+Моніторинг і керування гібридними інверторами **Deye**: трифазними **SG04LP3** (напр. SUN-12K-SG04LP3-EU) та однофазними **SG0xLP1** (SUN-3.6/5/6/8K-SG0xLP1). Модель визначається автоматично. Підключення через Wi-Fi-логер Solarman (V5, порт 8899): PWA для телефона й комп’ютера, Telegram-бот, сповіщення про відключення світла з прогнозом заряду.
 
 ## Що вміє
 
@@ -23,7 +23,7 @@ $s = Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/Ostap
 & ([scriptblock]::Create($s.Content)) -LoggerHost "192.168.1.253" -LoggerSerial 2903823473 -ExpectedInverterSerial "2311302087"
 ```
 
-(Якщо Python ще не встановлено, спочатку один раз запустіть `install-windows.ps1` з тими самими `-LoggerHost` і `-LoggerSerial`.)
+На новому комп’ютері скрипт сам встановить Python і залежності. Старе ручне встановлення (`%USERPROFILE%\DeyeControl`) зупиняється, його налаштування й історія переносяться. `-ExpectedInverterSerial` необов’язковий.
 
 Скрипт:
 1. оновлює програму й залежності;
