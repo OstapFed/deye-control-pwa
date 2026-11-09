@@ -14,11 +14,11 @@ from urllib.parse import urlsplit, parse_qs
 
 ROOT = Path(__file__).parent
 STATIC = ROOT.parent
-APP_VERSION = '2026.11.09-multi-model-5'
+APP_VERSION = '2026.11.09-no-pv-6'
 DATA = Path(os.environ.get('DEYE_DATA', str(ROOT / 'data')))
 DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
 LOCK = threading.RLock()
-DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], telegram_token='', daily_report_hour=20, warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[], logger_serial=0, persistent_connection=True, profile_name='deye_sg04lp3')
+DEFAULT = dict(address='', operator='', group='', timezone='Europe/Kyiv', capacity_kwh=10, reserve_soc=20, efficiency=.9, host='', port=502, unit=1, mode='demo', registers={}, verified_profile=False, allow_writes=False, outages=[], schedule_url='', telegram_users=[], telegram_token='', daily_report_hour=20, warning_minutes=30, target_soc=95, batteries=[], poll_seconds=2, active_site='default', sites=[], logger_serial=0, persistent_connection=True, profile_name='deye_sg04lp3', has_pv=True)
 PROFILES = ROOT / 'profiles'
 
 def log(*parts):
@@ -96,6 +96,7 @@ def validate_register(name, r):
 
 def validate(c):
     if not 0 <= int(c['logger_serial']) <= 0xffffffff: raise ValueError('Некоректний серійний номер логера')
+    if not isinstance(c.get('has_pv', True), bool): raise ValueError('has_pv має бути true/false')
     validate_batteries(c['batteries'])
     if not 0 <= float(c['reserve_soc']) < float(c['target_soc']) <= 100: raise ValueError('Потрібно 0 ≤ мінімум SOC < ціль SOC ≤ 100')
     if c['batteries']: c['capacity_kwh'] = battery_capacity(c['batteries'])
@@ -574,9 +575,9 @@ def summary():
     p = s['sample']; f = s.get('forecast', {})
     lines = [('ДЕМО · ' if s['demo'] else '') + (s['site_name'] or 'Мій дім'),
              f"🔋 SOC: {p['soc']:.0f}%" + (f" · {p['battery_w']:+.0f} Вт" if 'battery_w' in p else ''),
-             f"☀️ Сонце: {p['pv_w']:.0f} Вт", f"🏠 Навантаження: {p['load_w']:.0f} Вт",
+             *([f"☀️ Сонце: {p['pv_w']:.0f} Вт"] if c.get('has_pv', True) else []), f"🏠 Навантаження: {p['load_w']:.0f} Вт",
              f"🔌 Мережа: {'є' if p['grid_on'] else 'немає'}" + (f" · імпорт {p['grid_import_w']:.0f} Вт" if p.get('grid_import_w') else '') + (f" · експорт {p['grid_export_w']:.0f} Вт" if p.get('grid_export_w') else '')]
-    if 'today_pv_kwh' in p: lines.append(f"Сьогодні: PV {p['today_pv_kwh']:.1f} · спожито {p.get('today_load_kwh',0):.1f} · імпорт {p.get('today_import_kwh',0):.1f} кВт·год")
+    if 'today_load_kwh' in p: lines.append('Сьогодні: ' + (f"PV {p.get('today_pv_kwh',0):.1f} · " if c.get('has_pv', True) else '') + f"спожито {p.get('today_load_kwh',0):.1f} · імпорт {p.get('today_import_kwh',0):.1f} кВт·год")
     if f.get('restore_at'):
         lines.append(f"Заряд на момент ввімкнення світла ({clock(f['restore_at'], c)}): ≈{f['projected_soc']:.0f}%" + (' ⚠ може не вистачити' if f['insufficient'] else ''))
     elif f.get('hours_to_reserve') is not None:
@@ -637,14 +638,14 @@ def capabilities():
     c=config()
     writable={}
     if c['mode'] in ('modbus_tcp','solarman_v5') and c['verified_profile'] and c['allow_writes']: writable=setting_definitions(c)
-    return dict(version=APP_VERSION,protocol='deye-control-v5',writable=writable,settings=setting_definitions(c),metrics=list(telemetry_channels(c)),demo=c['mode']=='demo')
+    return dict(version=APP_VERSION,protocol='deye-control-v5',writable=writable,settings=setting_definitions(c),metrics=list(telemetry_channels(c)),demo=c['mode']=='demo',has_pv=bool(c.get('has_pv',True)))
 
 def report_message(hours=24):
     r = report(hours); c = config()
     def v(key): return '—' if r.get(key) is None else f"{r[key]:.2f}"
     lines = [f"📊 Звіт за {hours:.0f} год · {c['address'] or 'Мій дім'}" + (' (ДЕМО)' if r['demo'] else ''),
-             f"Генерація: {v('pv_kwh')} кВт·год", f"Споживання: {v('load_kwh')} кВт·год",
-             f"Імпорт: {v('grid_import_kwh')} · Експорт: {v('grid_export_kwh')} кВт·год",
+             *([f"Генерація: {v('pv_kwh')} кВт·год"] if c.get('has_pv', True) else []), f"Споживання: {v('load_kwh')} кВт·год",
+             f"Імпорт: {v('grid_import_kwh')} кВт·год" + (f" · Експорт: {v('grid_export_kwh')} кВт·год" if c.get('has_pv', True) else ''),
              f"Батарея: заряд {v('battery_charge_kwh')} · розряд {v('battery_discharge_kwh')} кВт·год",
              f"Покриття вимірюваннями: {r['coverage_hours']:.1f} з {hours:.0f} год"]
     if r.get('inverter_today'):

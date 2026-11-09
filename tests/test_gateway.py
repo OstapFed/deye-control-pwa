@@ -450,3 +450,13 @@ class SinglePhaseTests(NoSleepTestCase):
   app.save(app.DEFAULT|{'profile_name':'deye_sg0xlp1'})
   r=app.apply_profile('auto');self.assertEqual(r['profile'],'deye_sg0xlp1');self.assertEqual(app.config()['registers']['soc']['address'],184)
   app.save(dict(app.DEFAULT))
+
+class NoPvTests(NoSleepTestCase):
+ def test_summary_and_report_hide_solar(self):
+  app.save(app.DEFAULT|{'has_pv':False,'mode':'modbus_tcp'})
+  with app.STATE_LOCK:app.SITE_STATES['default']=dict(online=True,demo=False,error=None,sample=dict(soc=99,load_w=900,pv_w=0,grid_on=True,grid_import_w=950,today_load_kwh=5.1,today_pv_kwh=0,t=time.time(),site_id='default'))
+  try:
+   s=app.summary();self.assertNotIn('Сонце',s);self.assertNotIn('PV',s);self.assertIn('спожито 5.1',s)
+   self.assertNotIn('Генерація',app.report_message(24));self.assertFalse(app.capabilities()['has_pv'])
+  finally:app.SITE_STATES.clear();app.save(dict(app.DEFAULT))
+  with self.assertRaises(ValueError):app.validate(app.DEFAULT|{'has_pv':'no'})
