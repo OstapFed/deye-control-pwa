@@ -41,7 +41,8 @@ foreach ($c in @(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction
 }
 Start-Sleep -Seconds 2
 $legacy=Join-Path $env:USERPROFILE 'DeyeControl'
-if ((Test-Path (Join-Path $legacy 'data\config.json')) -and -not (Test-Path (Join-Path $deyeData 'config.json'))) {
+# The Python installer may already have written a blank config, so the marker is the missing history.
+if ((Test-Path (Join-Path $legacy 'data\config.json')) -and -not (Test-Path (Join-Path $deyeData 'history.sqlite'))) {
  Write-Host 'Moving settings and history from the older install...'
  New-Item -ItemType Directory -Force -Path $deyeData | Out-Null
  foreach ($f in @('config.json','history.sqlite')) {if (Test-Path (Join-Path $legacy ('data\'+$f))) {Copy-Item (Join-Path $legacy ('data\'+$f)) (Join-Path $deyeData $f) -Force}}
